@@ -1,3 +1,20 @@
+/**
+ * BrightArk workflow (Agents SDK)
+ *
+ * This file is a **snapshot of logic** you export from OpenAI Agent Builder (Code tab).
+ * It runs **on your server** with `@openai/agents` + your `OPENAI_API_KEY`.
+ *
+ * What it is NOT:
+ * - `workflow_id` / `OPENAI_WORKFLOW_ID` here are only **tracing labels** for the dashboard.
+ *   They do **not** pull the live graph from OpenAI; changing the canvas without re-pasting
+ *   code here will not update this deployment.
+ * - There is no separate “call wf_xxx over HTTP” endpoint in this repo; **ChatKit** is how
+ *   OpenAI hosts the workflow end-to-end in their cloud if you want that model.
+ *
+ * If answers feel “hardcoded”, check branches that **override** the model (previously the
+ * return flow ignored the Return agent and sent fixed strings). That override is removed so
+ * the assistant text comes from the model like the other agents.
+ */
 import {
   Agent,
   Runner,
@@ -260,11 +277,6 @@ Important: For those questions you can not answer, ask customers to info@thebrig
   },
 });
 
-function approvalRequest(_message: string): boolean {
-  // TODO: Implement human-in-the-loop
-  return true;
-}
-
 function buildConversationItems(workflow: WorkflowInput): AgentInputItem[] {
   const items: AgentInputItem[] = [];
   for (const turn of workflow.conversationHistory ?? []) {
@@ -288,7 +300,7 @@ const STREAM_REFUSAL_REPLY = "I'm sorry, I can't help with that.";
 
 async function runStreamingFinalAgent(
   runner: Runner,
-  agent: typeof retentionAgent | typeof informationAgent,
+  agent: typeof returnAgent | typeof retentionAgent | typeof informationAgent,
   history: AgentInputItem[],
   onDelta: (text: string) => void,
 ): Promise<{ reply: string; history: AgentInputItem[] }> {
@@ -362,16 +374,13 @@ export const runWorkflowStreaming = async (
     const classification = classificationResult.finalOutput.classification;
 
     if (classification === 'return_item') {
-      const returnResult = await runner.run(returnAgent, conversationHistory, { maxTurns: 25 });
-      conversationHistory = returnResult.history;
-      if (!returnResult.finalOutput) {
-        throw new Error('Agent result is undefined');
-      }
-      const finalMsg = approvalRequest('Does this work for you?')
-        ? 'Your return is on the way.'
-        : 'What else can I help you with?';
-      onDelta(finalMsg);
-      return { reply: finalMsg };
+      const { reply } = await runStreamingFinalAgent(
+        runner,
+        returnAgent,
+        conversationHistory,
+        onDelta,
+      );
+      return { reply };
     }
 
     if (classification === 'cancel_subscription') {
@@ -447,11 +456,7 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
         throw new Error('Agent result is undefined');
       }
 
-      const approvalMessage = 'Does this work for you?';
-      if (approvalRequest(approvalMessage)) {
-        return { message: 'Your return is on the way.' };
-      }
-      return { message: 'What else can I help you with?' };
+      return { output_text: finalOutputToText(returnResult.finalOutput) };
     }
 
     if (classification === 'cancel_subscription') {

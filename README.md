@@ -95,7 +95,7 @@ If the script lives in **Files** instead of theme assets, replace the last line 
 
 **Why answers don’t match Agent Builder**
 
-The chat API runs **`api/workflow/agent.ts`**: hand-written `@openai/agents` code in this repository.  
+The chat API runs **`api/workflow/agent.ts`**: `@openai/agents` code (normally **pasted from** Agent Builder → **Code**). Your `wf_…` env var is **tracing only**, not a live link to the hosted workflow.  
 Your **Agent Builder** canvas is a **different** artifact: a published workflow (`wf_…`) on OpenAI’s side. Putting a `wf_` id in **trace metadata only** does **not** pull in Builder prompts, tools, or training—you must **deploy the same logic** in one of the ways below.
 
 ### Option A — Use Builder-generated code (keeps `chat-widget.js` + `/api/chat`)
