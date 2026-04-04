@@ -179,6 +179,35 @@
     bubble.addEventListener('click', togglePanel);
     closeBtn.addEventListener('click', togglePanel);
 
+    function appendStreamingBotShell() {
+      var wrap = el('div', 'brightark-msg bot');
+      var inner = el('div', 'brightark-msg-inner', '');
+      wrap.appendChild(inner);
+      messages.appendChild(wrap);
+      scrollToBottom();
+      return inner;
+    }
+
+    function parseSseBuffer(buffer, onEvent) {
+      var out = { rest: buffer, events: [] };
+      var sep = '\n\n';
+      var idx;
+      while ((idx = buffer.indexOf(sep)) >= 0) {
+        var block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + sep.length);
+        if (block.indexOf('data:') === 0) {
+          var jsonStr = block.replace(/^data:\s?/, '').trim();
+          try {
+            onEvent(JSON.parse(jsonStr));
+          } catch (e) {
+            /* ignore malformed chunk */
+          }
+        }
+      }
+      out.rest = buffer;
+      return out;
+    }
+
     function sendMessage() {
       var text = input.value.trim();
       if (!text) return;
@@ -190,27 +219,54 @@
 
       fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
         body: JSON.stringify({
           message: text,
           conversationHistory: conversationHistory,
+          stream: true,
         }),
       })
         .then(function (r) {
-          return r.json().then(function (data) {
-            if (!r.ok) throw new Error(data.error || 'Request failed');
-            return data;
-          });
+          var ct = (r.headers.get('content-type') || '').toLowerCase();
+          if (!r.ok) {
+            return r.text().then(function (t) {
+              var msg = 'Request failed';
+              try {
+                var j = JSON.parse(t);
+                if (j && j.error) msg = String(j.error);
+                else if (t) msg = t;
+              } catch (e) {
+                if (t) msg = t;
+              }
+              throw new Error(msg);
+            });
+          }
+          if (ct.indexOf('text/event-stream') === -1) {
+            return r.json().then(function (data) {
+              return { legacyJson: data };
+            });
+          }
+          if (!r.body || !r.body.getReader) {
+            throw new Error('Streaming not supported in this browser.');
+          }
+          return readSseStream(r.body);
         })
-        .then(function (data) {
-          conversationHistory = Array.isArray(data.conversationHistory)
-            ? data.conversationHistory
-            : conversationHistory;
-          var reply =
-            typeof data.reply === 'string'
-              ? data.reply
-              : 'Sorry, I could not read the response.';
-          appendMessage('bot', reply);
+        .then(function (result) {
+          if (result && result.legacyJson) {
+            var data = result.legacyJson;
+            conversationHistory = Array.isArray(data.conversationHistory)
+              ? data.conversationHistory
+              : conversationHistory;
+            var reply =
+              typeof data.reply === 'string'
+                ? data.reply
+                : 'Sorry, I could not read the response.';
+            appendMessage('bot', reply);
+            return;
+          }
         })
         .catch(function () {
           appendMessage(
@@ -223,6 +279,51 @@
           send.disabled = false;
           input.focus();
         });
+
+      function readSseStream(body) {
+        var reader = body.getReader();
+        var dec = new TextDecoder();
+        var buf = '';
+        var botInner = null;
+        var fullReply = '';
+
+        return reader.read().then(function pump(chunk) {
+          if (chunk.done) {
+            if (!botInner && fullReply) {
+              appendMessage('bot', fullReply);
+            }
+            return;
+          }
+          buf += dec.decode(chunk.value, { stream: true });
+          var streamErr = null;
+          var parsed = parseSseBuffer(buf, function (ev) {
+            if (ev.type === 'delta' && typeof ev.text === 'string') {
+              showThinking(false);
+              if (!botInner) botInner = appendStreamingBotShell();
+              fullReply += ev.text;
+              botInner.textContent = fullReply;
+              scrollToBottom();
+            } else if (ev.type === 'done') {
+              showThinking(false);
+              if (typeof ev.reply === 'string') fullReply = ev.reply;
+              if (Array.isArray(ev.conversationHistory)) {
+                conversationHistory = ev.conversationHistory;
+              }
+              if (botInner) botInner.textContent = fullReply;
+              else if (fullReply) appendMessage('bot', fullReply);
+            } else if (ev.type === 'error') {
+              streamErr = new Error(
+                typeof ev.message === 'string'
+                  ? ev.message
+                  : 'Stream error',
+              );
+            }
+          });
+          if (streamErr) return Promise.reject(streamErr);
+          buf = parsed.rest;
+          return reader.read().then(pump);
+        });
+      }
     }
 
     send.addEventListener('click', sendMessage);

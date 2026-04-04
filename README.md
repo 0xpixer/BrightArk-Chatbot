@@ -125,7 +125,7 @@ If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`i
 | Path                   | Role                                              |
 | ---------------------- | ------------------------------------------------- |
 | `api/chat.ts`              | Vercel function: POST `/api/chat`, CORS, workflow |
-| `api/workflow/agent.ts`    | `runWorkflow`, agents, guardrails, tools          |
+| `api/workflow/agent.ts`    | `runWorkflow`, `runWorkflowStreaming`, agents      |
 | `public/chat-widget.js`| Shopify-facing chat UI (no npm deps)               |
 | `vercel.json`          | Node build for the API route                      |
 
@@ -139,11 +139,15 @@ If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`i
   "conversationHistory": [
     { "role": "user", "content": "Hi" },
     { "role": "assistant", "content": "Hello!" }
-  ]
+  ],
+  "stream": true
 }
 ```
 
-**Response (JSON):**
+- Omit **`stream`** or set **`stream`: `false`** for a classic JSON response.
+- Send header **`Accept: text/event-stream`** (the widget does both) to enable **SSE**.
+
+**Response (JSON)** when `stream` is false:
 
 ```json
 {
@@ -152,4 +156,10 @@ If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`i
 }
 ```
 
-The client should send back the full `conversationHistory` array on each turn so the workflow stays stateless between HTTP requests.
+**Response (SSE)** when streaming: `Content-Type: text/event-stream`. Each event is one line `data: <json>\n\n`:
+
+- `{ "type": "delta", "text": "…" }` — append `text` to the assistant message (token/chunk stream).
+- `{ "type": "done", "reply": "…", "conversationHistory": [ … ] }` — final full reply and updated history.
+- `{ "type": "error", "message": "…" }` — unrecoverable error.
+
+The client should send back the full `conversationHistory` from the last `done` (or JSON response) on each turn.

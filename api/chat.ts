@@ -1,18 +1,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   runWorkflow,
+  runWorkflowStreaming,
   type ConversationTurn,
 } from './workflow/agent.js';
 
 type ChatBody = {
   message?: string;
   conversationHistory?: unknown;
+  /** When true, response is `text/event-stream` with JSON lines in SSE `data:` frames. */
+  stream?: boolean;
 };
 
 function applyCors(res: VercelResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
   res.setHeader('Access-Control-Max-Age', '86400');
 }
 
@@ -40,6 +43,10 @@ function extractReply(result: unknown): string {
     if (typeof o.output_text === 'string') return o.output_text;
   }
   return JSON.stringify(result ?? null);
+}
+
+function sendSse(res: VercelResponse, payload: Record<string, unknown>): void {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 export default async function handler(
@@ -85,6 +92,48 @@ export default async function handler(
   }
 
   const conversationHistory = parseHistory(body.conversationHistory);
+  const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
+  const wantStream =
+    body.stream === true || accept.includes('text/event-stream');
+
+  if (wantStream) {
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    try {
+      const { reply } = await runWorkflowStreaming(
+        {
+          input_as_text: message,
+          conversationHistory,
+        },
+        (text) => {
+          sendSse(res, { type: 'delta', text });
+        },
+      );
+      const nextHistory: ConversationTurn[] = [
+        ...conversationHistory,
+        { role: 'user', content: message },
+        { role: 'assistant', content: reply },
+      ];
+      sendSse(res, {
+        type: 'done',
+        reply,
+        conversationHistory: nextHistory,
+      });
+      res.end();
+    } catch (err) {
+      console.error('chat handler error (stream)', err);
+      sendSse(res, {
+        type: 'error',
+        message: 'Something went wrong. Please try again in a moment.',
+      });
+      res.end();
+    }
+    return;
+  }
 
   try {
     const result = await runWorkflow({

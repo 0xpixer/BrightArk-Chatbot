@@ -284,6 +284,122 @@ function finalOutputToText(output: unknown): string {
   return JSON.stringify(output);
 }
 
+const STREAM_REFUSAL_REPLY = "I'm sorry, I can't help with that.";
+
+async function runStreamingFinalAgent(
+  runner: Runner,
+  agent: typeof retentionAgent | typeof informationAgent,
+  history: AgentInputItem[],
+  onDelta: (text: string) => void,
+): Promise<{ reply: string; history: AgentInputItem[] }> {
+  const streamed = await runner.run(agent, history, { stream: true, maxTurns: 25 });
+  const webStream = streamed.toTextStream() as unknown as {
+    getReader(): ReadableStreamDefaultReader<string>;
+  };
+  const reader = webStream.getReader();
+  let accumulated = '';
+  try {
+    await Promise.all([
+      streamed.completed,
+      (async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            accumulated += value;
+            onDelta(value);
+          }
+        }
+      })(),
+    ]);
+  } finally {
+    reader.releaseLock();
+  }
+  const fo = streamed.finalOutput;
+  const reply =
+    typeof fo === 'string' && fo.trim() !== ''
+      ? fo
+      : accumulated;
+  return { reply, history: streamed.history };
+}
+
+/** Streaming path: invokes `onDelta` for each text chunk; returns final `reply` (same as non-streaming semantics). */
+export const runWorkflowStreaming = async (
+  workflow: WorkflowInput,
+  onDelta: (text: string) => void,
+): Promise<{ reply: string }> => {
+  return await withTrace('BrightArk Chatbot', async () => {
+    const workflowRecord = workflow as unknown as Record<string, unknown>;
+    let conversationHistory: AgentInputItem[] = buildConversationItems(workflow);
+
+    const runner = new Runner({
+      traceMetadata: {
+        __trace_source__: 'agent-builder',
+        workflow_id: WORKFLOW_ID,
+      },
+    });
+
+    const { hasTripwire: tripwire } = await runAndApplyGuardrails(
+      workflow.input_as_text,
+      jailbreakGuardrailConfig,
+      conversationHistory as unknown[],
+      workflowRecord,
+    );
+
+    if (tripwire) {
+      return { reply: STREAM_REFUSAL_REPLY };
+    }
+
+    const classificationResult = await runner.run(classificationAgent, conversationHistory, {
+      maxTurns: 25,
+    });
+    conversationHistory = classificationResult.history;
+
+    if (!classificationResult.finalOutput) {
+      throw new Error('Agent result is undefined');
+    }
+
+    const classification = classificationResult.finalOutput.classification;
+
+    if (classification === 'return_item') {
+      const returnResult = await runner.run(returnAgent, conversationHistory, { maxTurns: 25 });
+      conversationHistory = returnResult.history;
+      if (!returnResult.finalOutput) {
+        throw new Error('Agent result is undefined');
+      }
+      const finalMsg = approvalRequest('Does this work for you?')
+        ? 'Your return is on the way.'
+        : 'What else can I help you with?';
+      onDelta(finalMsg);
+      return { reply: finalMsg };
+    }
+
+    if (classification === 'cancel_subscription') {
+      const { reply } = await runStreamingFinalAgent(
+        runner,
+        retentionAgent,
+        conversationHistory,
+        onDelta,
+      );
+      return { reply };
+    }
+
+    if (classification === 'get_information') {
+      const { reply } = await runStreamingFinalAgent(
+        runner,
+        informationAgent,
+        conversationHistory,
+        onDelta,
+      );
+      return { reply };
+    }
+
+    const fallback = JSON.stringify(classificationResult.finalOutput);
+    onDelta(fallback);
+    return { reply: fallback };
+  });
+};
+
 export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResult> => {
   return await withTrace('BrightArk Chatbot', async () => {
     const workflowRecord = workflow as unknown as Record<string, unknown>;
@@ -312,7 +428,9 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
       return { safe_text: '' };
     }
 
-    const classificationResult = await runner.run(classificationAgent, conversationHistory);
+    const classificationResult = await runner.run(classificationAgent, conversationHistory, {
+      maxTurns: 25,
+    });
     conversationHistory = classificationResult.history;
 
     if (!classificationResult.finalOutput) {
@@ -322,7 +440,7 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
     const classification = classificationResult.finalOutput.classification;
 
     if (classification === 'return_item') {
-      const returnResult = await runner.run(returnAgent, conversationHistory);
+      const returnResult = await runner.run(returnAgent, conversationHistory, { maxTurns: 25 });
       conversationHistory = returnResult.history;
 
       if (!returnResult.finalOutput) {
@@ -337,7 +455,7 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
     }
 
     if (classification === 'cancel_subscription') {
-      const retentionResult = await runner.run(retentionAgent, conversationHistory);
+      const retentionResult = await runner.run(retentionAgent, conversationHistory, { maxTurns: 25 });
       conversationHistory = retentionResult.history;
 
       if (retentionResult.finalOutput === undefined || retentionResult.finalOutput === null) {
@@ -348,7 +466,9 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
     }
 
     if (classification === 'get_information') {
-      const informationResult = await runner.run(informationAgent, conversationHistory);
+      const informationResult = await runner.run(informationAgent, conversationHistory, {
+        maxTurns: 25,
+      });
       conversationHistory = informationResult.history;
 
       if (informationResult.finalOutput === undefined || informationResult.finalOutput === null) {
