@@ -50,15 +50,20 @@ The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow t
 | Variable           | Description                                      | Example                |
 | ------------------ | ------------------------------------------------ | ---------------------- |
 | `OPENAI_API_KEY`   | OpenAI secret key                                | `sk-...`               |
-| `SHOPIFY_DOMAIN`   | Store hostname used to tighten CORS (optional)   | `store.myshopify.com`  |
+| `SHOPIFY_DOMAIN`   | Allowed storefront origins for CORS (optional)   | See CORS section below |
 
 4. Deploy. Your API URL will look like `https://your-project.vercel.app/api/chat`.
 
 ### CORS
 
 - If `SHOPIFY_DOMAIN` is **unset**, responses use `Access-Control-Allow-Origin: *` (simplest for testing).
-- If set to `store.myshopify.com`, the API sends `Access-Control-Allow-Origin: https://store.myshopify.com`.
-- If you use a **custom storefront domain**, set `SHOPIFY_DOMAIN` to that hostname (without path), or use `*` until you standardize on one origin.
+- If set, the API **only** allows browser `Origin` values that match your list. Use a **comma-separated** list of hostnames (or full `https://` URLs) for every domain where the widget runs—for example a custom domain **and** the `myshopify.com` host:
+
+  `thebrightark.com, www.thebrightark.com, your-store.myshopify.com`
+
+  Do not include paths. The response echoes the request’s `Origin` when it matches (required for JSON `POST` from the storefront).
+
+- If the widget loads on `https://thebrightark.com` but `SHOPIFY_DOMAIN` only lists `*.myshopify.com`, the browser will block the request with a CORS error.
 
 ## Shopify: widget installation
 

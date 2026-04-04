@@ -9,19 +9,54 @@ type ChatBody = {
   conversationHistory?: unknown;
 };
 
-function getCorsOrigin(): string {
-  const domain = process.env.SHOPIFY_DOMAIN?.trim();
-  if (!domain) return '*';
-  if (domain.startsWith('http://') || domain.startsWith('https://')) return domain;
-  return `https://${domain}`;
+/** Comma-separated hostnames or full origins (e.g. `thebrightark.com, shop.myshopify.com`). */
+function parseAllowedOrigins(): string[] {
+  const raw = process.env.SHOPIFY_DOMAIN?.trim();
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      if (entry.startsWith('http://') || entry.startsWith('https://')) return entry;
+      return `https://${entry}`;
+    });
 }
 
-function corsHeaders(origin: string): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+function originMatchesAllowlist(requestOrigin: string, allowed: string[]): boolean {
+  let req: URL;
+  try {
+    req = new URL(requestOrigin);
+  } catch {
+    return false;
+  }
+  for (const entry of allowed) {
+    try {
+      if (new URL(entry).origin === req.origin) return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+/**
+ * Reflects the browser `Origin` when it is on the allowlist; otherwise `*` if no allowlist.
+ * Mismatched locked-down origins get no ACAO header (browser blocks).
+ */
+function applyCors(req: VercelRequest, res: VercelResponse): void {
+  const allowed = parseAllowedOrigins();
+  const requestOrigin = req.headers.origin;
+
+  if (allowed.length === 0) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (typeof requestOrigin === 'string' && originMatchesAllowlist(requestOrigin, allowed)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    res.setHeader('Vary', 'Origin');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
 function parseHistory(raw: unknown): ConversationTurn[] {
@@ -54,9 +89,7 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
 ): Promise<void> {
-  const origin = getCorsOrigin();
-  const headers = corsHeaders(origin);
-  Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+  applyCors(req, res);
 
   if (req.method === 'OPTIONS') {
     res.status(204).end();
