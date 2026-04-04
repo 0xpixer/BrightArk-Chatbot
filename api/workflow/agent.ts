@@ -18,6 +18,10 @@ export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
 export type WorkflowInput = {
   input_as_text: string;
   conversationHistory?: ConversationTurn[];
+  /** Resolved IANA zone from the client (server-validated). */
+  timezone?: string;
+  /** Calendar date in that zone, e.g. "Saturday, April 4, 2026". */
+  userLocalDateToday?: string;
 };
 
 export type WorkflowResult =
@@ -233,6 +237,22 @@ const sarahAgent = new Agent({
   },
 });
 
+function buildUserMessageText(workflow: WorkflowInput): string {
+  const tz = workflow.timezone?.trim();
+  const date = workflow.userLocalDateToday?.trim();
+  if (tz && date) {
+    return (
+      "[User's local calendar date: " +
+      date +
+      ' (time zone: ' +
+      tz +
+      '). Use this when the user asks about "today", relative dates, or scheduling.]\n\n' +
+      workflow.input_as_text
+    );
+  }
+  return workflow.input_as_text;
+}
+
 function buildConversationItems(workflow: WorkflowInput): AgentInputItem[] {
   const items: AgentInputItem[] = [];
   for (const turn of workflow.conversationHistory ?? []) {
@@ -241,7 +261,7 @@ function buildConversationItems(workflow: WorkflowInput): AgentInputItem[] {
   }
   items.push({
     role: 'user',
-    content: [{ type: 'input_text', text: workflow.input_as_text }],
+    content: [{ type: 'input_text', text: buildUserMessageText(workflow) }],
   });
   return items;
 }

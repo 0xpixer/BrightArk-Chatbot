@@ -8,9 +8,44 @@ import {
 type ChatBody = {
   message?: string;
   conversationHistory?: unknown;
+  /** IANA time zone from the browser, e.g. `America/New_York`. */
+  timezone?: string;
   /** When true, response is `text/event-stream` with JSON lines in SSE `data:` frames. */
   stream?: boolean;
 };
+
+const DEFAULT_TIMEZONE = 'Asia/Singapore';
+
+/** Accept only valid IANA zones; fall back if the client sends garbage. */
+function resolveTimeZone(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_TIMEZONE;
+  const tz = raw.trim();
+  if (!tz) return DEFAULT_TIMEZONE;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+    return tz;
+  } catch {
+    return DEFAULT_TIMEZONE;
+  }
+}
+
+function formatUserLocalDate(timeZone: string): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone,
+  };
+  try {
+    return new Date().toLocaleDateString('en-US', opts);
+  } catch {
+    return new Date().toLocaleDateString('en-US', {
+      ...opts,
+      timeZone: DEFAULT_TIMEZONE,
+    });
+  }
+}
 
 function applyCors(res: VercelResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -92,6 +127,8 @@ export default async function handler(
   }
 
   const conversationHistory = parseHistory(body.conversationHistory);
+  const timeZone = resolveTimeZone(body.timezone);
+  const userLocalDateToday = formatUserLocalDate(timeZone);
   const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
   const wantStream =
     body.stream === true || accept.includes('text/event-stream');
@@ -108,6 +145,8 @@ export default async function handler(
         {
           input_as_text: message,
           conversationHistory,
+          timezone: timeZone,
+          userLocalDateToday,
         },
         (text) => {
           sendSse(res, { type: 'delta', text });
@@ -139,6 +178,8 @@ export default async function handler(
     const result = await runWorkflow({
       input_as_text: message,
       conversationHistory,
+      timezone: timeZone,
+      userLocalDateToday,
     });
     const reply = extractReply(result);
     const nextHistory: ConversationTurn[] = [

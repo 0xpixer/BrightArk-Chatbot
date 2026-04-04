@@ -364,6 +364,13 @@
           message: text,
           conversationHistory: conversationHistory,
           stream: true,
+          timezone: (function () {
+            try {
+              return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+            } catch (e) {
+              return undefined;
+            }
+          })(),
         }),
       })
         .then(function (r) {
