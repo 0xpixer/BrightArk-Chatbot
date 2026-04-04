@@ -1,5 +1,9 @@
 {
-  "version": 2,
-  "builds": [{ "src": "api/chat.ts", "use": "@vercel/node" }],
-  "routes": [{ "src": "/api/(.*)", "dest": "/api/$1" }]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/chat.ts": {
+      "includeFiles": ["workflow/**"],
+      "maxDuration": 60
+    }
+  }
 }

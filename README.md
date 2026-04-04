@@ -35,6 +35,8 @@ Set environment variables in `.env.local` (loaded by `vercel dev`):
 
 The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow the CLI output).
 
+**Vercel:** Call **`https://YOUR-PROJECT.vercel.app/api/chat`** (POST). The deployment root `/` only shows a short status page; a `404 NOT_FOUND` on `/` or a wrong path usually means you are not hitting `/api/chat`.
+
 ### Note on dependencies
 
 `@openai/agents` expects **Zod v4**. This repo pins `zod@^4`. The repo also includes `.npmrc` with `legacy-peer-deps=true` so `npm install` stays compatible with `@openai/guardrails`’s older peer declarations.

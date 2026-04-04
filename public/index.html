@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BrightArk Chatbot API</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      code {
+        background: #f4f4f5;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>BrightArk Chatbot</h1>
+    <p>
+      This deployment exposes the chat API at
+      <code>POST /api/chat</code> (JSON body:
+      <code>message</code>, optional <code>conversationHistory</code>).
+    </p>
+    <p>
+      Open the root URL in a browser only checks that the project is live; the
+      widget and Shopify integration should call the API path above.
+    </p>
+  </body>
+</html>
