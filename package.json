@@ -1,0 +1,19 @@
+{
+  "name": "brightark-chatbot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@openai/agents": "latest",
+    "@openai/guardrails": "latest",
+    "openai": "^4.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vercel/node": "^3.2.29",
+    "typescript": "^5.0.0"
+  }
+}
