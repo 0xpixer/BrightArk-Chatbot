@@ -1,28 +1,8 @@
 /**
- * BrightArk workflow (Agents SDK)
- *
- * This file is a **snapshot of logic** you export from OpenAI Agent Builder (Code tab).
- * It runs **on your server** with `@openai/agents` + your `OPENAI_API_KEY`.
- *
- * What it is NOT:
- * - `workflow_id` / `OPENAI_WORKFLOW_ID` here are only **tracing labels** for the dashboard.
- *   They do **not** pull the live graph from OpenAI; changing the canvas without re-pasting
- *   code here will not update this deployment.
- * - There is no separate “call wf_xxx over HTTP” endpoint in this repo; **ChatKit** is how
- *   OpenAI hosts the workflow end-to-end in their cloud if you want that model.
- *
- * If answers feel “hardcoded”, check branches that **override** the model (previously the
- * return flow ignored the Return agent and sent fixed strings). That override is removed so
- * the assistant text comes from the model like the other agents.
+ * BrightArk workflow — Agents SDK snapshot from Agent Builder (Code tab).
+ * Runs on this server with `OPENAI_API_KEY`. `OPENAI_WORKFLOW_ID` is for tracing only.
  */
-import {
-  Agent,
-  Runner,
-  assistant,
-  tool,
-  user,
-  withTrace,
-} from '@openai/agents';
+import { Agent, Runner, assistant, user, withTrace } from '@openai/agents';
 import type { AgentInputItem } from '@openai/agents';
 import { runGuardrails, type GuardrailBundle } from '@openai/guardrails';
 import '@openai/guardrails';
@@ -47,25 +27,9 @@ export type WorkflowResult =
   | { safe_text: string }
   | Record<string, unknown>;
 
-const getRetentionOffers = tool({
-  name: 'getRetentionOffers',
-  description: 'Retrieve possible retention offers for a customer',
-  parameters: z.object({
-    customer_id: z.string(),
-    account_type: z.string(),
-    current_plan: z.string(),
-    tenure_months: z.number().int(),
-    recent_complaints: z.boolean(),
-  }),
-  execute: async () => {
-    // TODO: Unimplemented — return structured placeholder for the agent
-    return JSON.stringify({ offers: [] });
-  },
-});
-
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const jailbreakGuardrailConfig = {
+const jailbreakGuardrailConfig: GuardrailBundle = {
   guardrails: [
     {
       name: 'Jailbreak',
@@ -190,18 +154,19 @@ function buildGuardrailFailOutput(results: unknown[]) {
   };
 }
 
+/** Schema aligned with routing branches (Builder text listed conflicting labels; enum must match `if` branches). */
 const ClassificationAgentSchema = z.object({
-  classification: z.enum(['return_item', 'cancel_subscription', 'get_information']),
+  classification: z.enum(['product_promotion', 'get_information']),
 });
 
 const classificationAgent = new Agent({
   name: 'Classification agent',
-  instructions: `Classify the user’s intent into one of the following categories: "return_item", "cancel_subscription", or "get_information".
+  instructions: `Classify the user’s intent into exactly one of:
+- **product_promotion**: pricing, promotions, deals, “why choose BrightArk”, commercial positioning, or general sales-oriented questions.
+- **get_information**: product specs, clinical/technical use, troubleshooting, partner tiers detail, support contacts, or any detailed factual BrightArk question.
 
-1. Any device-related return requests should route to return_item.
-2. Any retention or cancellation risk, including any request for discounts should route to cancel_subscription.
-3. Any other requests should go to get_information.`,
-  model: 'gpt-4.1-mini',
+If unsure, choose **get_information**.`,
+  model: 'gpt-4.1-nano',
   outputType: ClassificationAgentSchema,
   modelSettings: {
     temperature: 1,
@@ -211,63 +176,54 @@ const classificationAgent = new Agent({
   },
 });
 
-const returnAgent = new Agent({
-  name: 'Return agent',
-  instructions: `Offer a replacement device with free shipping.
-`,
-  model: 'gpt-4.1-mini',
-  modelSettings: {
-    temperature: 1,
-    topP: 1,
-    maxTokens: 2048,
-    store: true,
-  },
-});
-
-const retentionAgent = new Agent({
-  name: 'Retention Agent',
-  instructions:
-    'You are a customer retention conversational agent whose goal is to prevent subscription cancellations. Ask for their current plan and reason for dissatisfaction. Use getRetentionOffers to identify return options. For now, just say there is a 20% offer available for 1 year.',
-  model: 'gpt-4.1-mini',
-  tools: [getRetentionOffers],
-  modelSettings: {
-    temperature: 1,
-    topP: 1,
-    parallelToolCalls: true,
-    maxTokens: 2048,
-    store: true,
-  },
-});
-
 const informationAgent = new Agent({
   name: 'Information agent',
   instructions: `BrightArk Digital Expert: System Instructions
-Role: You are the BrightArk Digital Expert, a professional assistant for dentists and distributors. Your mission is to provide technical, clinical, and commercial information regarding BrightArk’s end-to-end digital dentistry solutions.
+Role: You are Sarah. You are the BrightArk Digital Expert, a professional assistant for dentists and distributors. Your mission is to provide technical, clinical, and commercial information regarding BrightArk’s end-to-end digital dentistry solutions. Respond using professional, approachable, and friendly language.
 Communication Tone: Professional, innovative, and concise. Always prioritize accuracy and efficiency to reflect BrightArk’s core values of Innovation, Care, and Integrity.
- --------------------------------------------------------------------------------
+ -------------------------------------------------------------------------------- 
 1. Product Ecosystem Knowledge (Required Mappings)
 BrightArk iAlign (Clear Aligners): Features iMemory™ Shape Memory Technology that self-recovers up to 99.8% of its original state when soaked in warm water to maintain consistent force.
 BrightArk iScan (Intraoral Scanner): An ultra-lightweight (210g), calibration-free scanner. It features AI lesion detection for 8 major issues and integrated anti-fog heating.
-BrightArk iDesign (AI Platform): Formerly known as LingOral. An intelligent medical application for organizing records, performing cephalometric/3D analysis, and fusing CBCT data with crown scans.
+BrightArk iDesign (AI Platform): An intelligent medical application for organizing records, performing cephalometric/3D analysis, and fusing CBCT data with crown scans.
 BrightArk iTracker: An AI monitoring system for weekly "smile selfies," allowing remote treatment tracking without frequent clinic visits.
 BrightArk iShade (Digital Shade Detector): Uses spectrophotometer technology to achieve 92.5% accuracy in shade matching (compared to 67.5% with traditional guides).
- --------------------------------------------------------------------------------
+iSmile Simulator (or iSmile): Take Upload a clear, front-facing smile photo to preview your AI-powered alignment simulation.Please note: this does not replace a consultation with a qualified aligner provider. Try here: ismile.thebrightark.com
+ -------------------------------------------------------------------------------- 
 2. Commercial & Support Programs
 Partner Program: Offer tiered benefits (Gold, Platinum, Diamond) based on case volume, including online training, offline seminars, and discounts ranging from 10% to 30%.
 Referral Program: Dentists earn a 2% referral fee on paid order values from their referee’s clinic for the first 12 months.
 Global Support: BrightArk provides local service teams in Singapore (HQ), the United States, Indonesia, Thailand, and Australia.
- --------------------------------------------------------------------------------
+Become to a partner clinic or distributor: Contact Us through email info@thebrightark.com or leave a message here https://thebrightark.com/pages/contact , our team will reach out to you.
+ -------------------------------------------------------------------------------- 
 3. Technical Troubleshooting
 iScan Setup: Requires Windows 10/11 Pro/Corporate (64-bit), minimum 16GB RAM, and an NVIDIA GeForce 1660GTX or higher (AMD cards not supported).
 iShade Inaccuracy: Instruct users to perform white balance calibration by placing the device on its base and ensure the probe is clean and parallel to the tooth surface.
 iAlign Maintenance: Patients must wear aligners for 22+ hours daily. Only cool water is permitted; hot liquids will deform the shape-memory material.
- --------------------------------------------------------------------------------
+ -------------------------------------------------------------------------------- 
 4. Agent Operational Rules
 Be Direct: Do not provide unnecessary preamble.
 Dentist/Distributor Focus: If a user asks about becoming a partner, immediately mention the gold/platinum/diamond tiers and clinical support.
 Safety First: For any reports of pain or allergic reactions, the agent must instruct the user to stop use and contact a trained professional immediately.
 
-Important: For those questions you can not answer, ask customers to info@thebrightark.com or leave a message in the contact page https://thebrightark.com/pages/contact`,
+Important: 
+1.For those questions you can not answer, ask customers to info@thebrightark.com or leave a message in the contact page https://thebrightark.com/pages/contact
+2. Only answer questions related to BrightArk and products.
+3. if the content contains a link, use hyperlink to allow user click it.`,
+  model: 'gpt-4.1-nano',
+  modelSettings: {
+    temperature: 1,
+    topP: 1,
+    maxTokens: 2048,
+    store: true,
+  },
+});
+
+/** General Sarah agent for product_promotion path (Builder had an empty branch). */
+const sarahAgent = new Agent({
+  name: 'Agent',
+  instructions:
+    'You are Sarah, a BrightArk Digital Expert. Respond using professional, approachable, and friendly language.',
   model: 'gpt-4.1-nano',
   modelSettings: {
     temperature: 1,
@@ -300,7 +256,7 @@ const STREAM_REFUSAL_REPLY = "I'm sorry, I can't help with that.";
 
 async function runStreamingFinalAgent(
   runner: Runner,
-  agent: typeof returnAgent | typeof retentionAgent | typeof informationAgent,
+  agent: typeof sarahAgent | typeof informationAgent,
   history: AgentInputItem[],
   onDelta: (text: string) => void,
 ): Promise<{ reply: string; history: AgentInputItem[] }> {
@@ -335,7 +291,6 @@ async function runStreamingFinalAgent(
   return { reply, history: streamed.history };
 }
 
-/** Streaming path: invokes `onDelta` for each text chunk; returns final `reply` (same as non-streaming semantics). */
 export const runWorkflowStreaming = async (
   workflow: WorkflowInput,
   onDelta: (text: string) => void,
@@ -373,23 +328,8 @@ export const runWorkflowStreaming = async (
 
     const classification = classificationResult.finalOutput.classification;
 
-    if (classification === 'return_item') {
-      const { reply } = await runStreamingFinalAgent(
-        runner,
-        returnAgent,
-        conversationHistory,
-        onDelta,
-      );
-      return { reply };
-    }
-
-    if (classification === 'cancel_subscription') {
-      const { reply } = await runStreamingFinalAgent(
-        runner,
-        retentionAgent,
-        conversationHistory,
-        onDelta,
-      );
+    if (classification === 'product_promotion') {
+      const { reply } = await runStreamingFinalAgent(runner, sarahAgent, conversationHistory, onDelta);
       return { reply };
     }
 
@@ -422,10 +362,7 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
     });
 
     const guardrailsInputText = workflow.input_as_text;
-    const {
-      hasTripwire: tripwire,
-      failOutput: guardrailsFailOutput,
-    } = await runAndApplyGuardrails(
+    const { hasTripwire: tripwire, failOutput: guardrailsFailOutput } = await runAndApplyGuardrails(
       guardrailsInputText,
       jailbreakGuardrailConfig,
       conversationHistory as unknown[],
@@ -448,39 +385,22 @@ export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResu
 
     const classification = classificationResult.finalOutput.classification;
 
-    if (classification === 'return_item') {
-      const returnResult = await runner.run(returnAgent, conversationHistory, { maxTurns: 25 });
-      conversationHistory = returnResult.history;
-
-      if (!returnResult.finalOutput) {
+    if (classification === 'product_promotion') {
+      const r = await runner.run(sarahAgent, conversationHistory, { maxTurns: 25 });
+      conversationHistory = r.history;
+      if (r.finalOutput === undefined || r.finalOutput === null) {
         throw new Error('Agent result is undefined');
       }
-
-      return { output_text: finalOutputToText(returnResult.finalOutput) };
-    }
-
-    if (classification === 'cancel_subscription') {
-      const retentionResult = await runner.run(retentionAgent, conversationHistory, { maxTurns: 25 });
-      conversationHistory = retentionResult.history;
-
-      if (retentionResult.finalOutput === undefined || retentionResult.finalOutput === null) {
-        throw new Error('Agent result is undefined');
-      }
-
-      return { output_text: finalOutputToText(retentionResult.finalOutput) };
+      return { output_text: finalOutputToText(r.finalOutput) };
     }
 
     if (classification === 'get_information') {
-      const informationResult = await runner.run(informationAgent, conversationHistory, {
-        maxTurns: 25,
-      });
-      conversationHistory = informationResult.history;
-
-      if (informationResult.finalOutput === undefined || informationResult.finalOutput === null) {
+      const r = await runner.run(informationAgent, conversationHistory, { maxTurns: 25 });
+      conversationHistory = r.history;
+      if (r.finalOutput === undefined || r.finalOutput === null) {
         throw new Error('Agent result is undefined');
       }
-
-      return { output_text: finalOutputToText(informationResult.finalOutput) };
+      return { output_text: finalOutputToText(r.finalOutput) };
     }
 
     return {
