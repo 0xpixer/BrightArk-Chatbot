@@ -28,9 +28,10 @@ npx vercel dev
 
 Set environment variables in `.env.local` (loaded by `vercel dev`):
 
-| Variable         | Description            |
-| ---------------- | ---------------------- |
-| `OPENAI_API_KEY` | Your OpenAI secret key |
+| Variable              | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| `OPENAI_API_KEY`      | Your OpenAI secret key                                     |
+| `OPENAI_WORKFLOW_ID`  | Optional `wf_…` id for **trace metadata** only (see above) |
 
 The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow the CLI output).
 
@@ -46,9 +47,10 @@ The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow t
 2. In [Vercel](https://vercel.com), **Import** the project and select the repo.
 3. Under **Settings → Environment Variables**, add:
 
-| Variable         | Description        | Example  |
-| ---------------- | ------------------ | -------- |
-| `OPENAI_API_KEY` | OpenAI secret key  | `sk-...` |
+| Variable               | Description                          | Example   |
+| ---------------------- | ------------------------------------ | --------- |
+| `OPENAI_API_KEY`       | OpenAI secret key                    | `sk-...`  |
+| `OPENAI_WORKFLOW_ID`   | Optional; trace grouping (`wf_…`)   | `wf_…`    |
 
 4. Deploy. Your API URL will look like `https://your-project.vercel.app/api/chat`.
 
@@ -89,18 +91,34 @@ If the script lives in **Files** instead of theme assets, replace the last line 
 
 3. Save. The widget reads `window.AI_CHAT_CONFIG.apiEndpoint` and keeps `conversationHistory` in memory for the page session (not `localStorage`).
 
-## Updating assistant behavior
+## Agent Builder (“trained” workflow) vs this repo
 
-Edit the `instructions` strings (and optional `tools`) on the agents in `api/workflow/agent.ts`:
+**Why answers don’t match Agent Builder**
 
-- **Classification Agent** — routing rules to return / retention / information.
-- **Information Agent**, **Return Agent**, **Retention Agent** — tone and policies.
+The chat API runs **`api/workflow/agent.ts`**: hand-written `@openai/agents` code in this repository.  
+Your **Agent Builder** canvas is a **different** artifact: a published workflow (`wf_…`) on OpenAI’s side. Putting a `wf_` id in **trace metadata only** does **not** pull in Builder prompts, tools, or training—you must **deploy the same logic** in one of the ways below.
 
-The workflow ID used for tracing metadata is:
+### Option A — Use Builder-generated code (keeps `chat-widget.js` + `/api/chat`)
 
-`wf_69d06a9b8f708190a49d2fb0a96f45210dda58e7b54f5c6e`
+1. Open [Agent Builder](https://platform.openai.com/agent-builder), select your customer-service workflow.
+2. Click **Code** (top) and copy or download the **Agents SDK** output.
+3. Replace or merge into **`api/workflow/agent.ts`**, and keep an exported:
 
-After changes, run `npm run build`, commit, and redeploy on Vercel.
+   `runWorkflow({ input_as_text, conversationHistory? })`
+
+   returning something `api/chat.ts` already understands (`message`, `output_text`, or guardrail-style `safe_text`), or adjust `extractReply` in `api/chat.ts`.
+
+4. `npm run build`, commit, redeploy Vercel.
+
+Optional: set **`OPENAI_WORKFLOW_ID`** in Vercel to your real `wf_…` so traces group correctly (still does not load the workflow by itself).
+
+### Option B — ChatKit (OpenAI runs the workflow)
+
+Use [ChatKit](https://developers.openai.com/api/docs/guides/chatkit): your backend creates a **ChatKit session** with `workflow: { id: "wf_…" }` and the **ChatKit** UI talks to OpenAI. That matches the hosted Builder workflow but is a different integration than this project’s custom widget + `POST /api/chat`.
+
+### Editing the placeholder agents only
+
+If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`instructions`** (and `tools`) there—those strings are what the API actually uses today.
 
 ## Project layout
 

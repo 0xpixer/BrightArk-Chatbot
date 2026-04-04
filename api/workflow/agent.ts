@@ -1,3 +1,20 @@
+/**
+ * IMPORTANT — Agent Builder vs this file
+ *
+ * What you configure and “train” in OpenAI **Agent Builder** (platform.openai.com) is a
+ * **hosted workflow** (`wf_…`). This repository does **not** load that workflow by ID.
+ * The code below defines **separate** agents in TypeScript, so replies follow these
+ * prompts—not the canvas you edited in Builder—unless you replace this file.
+ *
+ * To use your trained Builder workflow with this Shopify + `/api/chat` setup:
+ * 1. Open your workflow in Agent Builder → **Code** (top nav).
+ * 2. Copy / download the generated **Agents SDK** source and paste it here (or merge),
+ *    preserving an exported `runWorkflow` with the same shape `{ input_as_text, conversationHistory? }`
+ *    and return type compatible with `api/chat.ts` (`message` / `output_text` / `safe_text`).
+ *
+ * Alternative: keep Builder as the source of truth by embedding **ChatKit** (OpenAI hosts
+ * the workflow); that uses a different frontend than `public/chat-widget.js`. See README.
+ */
 import {
   Agent,
   Runner,
@@ -12,8 +29,10 @@ import { runGuardrails } from '@openai/guardrails';
 import '@openai/guardrails';
 import { z } from 'zod';
 
-/** OpenAI Workflow ID for trace grouping in the dashboard */
-const WORKFLOW_TRACE_ID = 'wf_69d06a9b8f708190a49d2fb0a96f45210dda58e7b54f5c6e';
+/** Trace metadata only (dashboard grouping)—does not load the Builder workflow. */
+const WORKFLOW_TRACE_ID =
+  process.env.OPENAI_WORKFLOW_ID?.trim() ||
+  'wf_69d06a9b8f708190a49d2fb0a96f45210dda58e7b54f5c6e';
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
 
