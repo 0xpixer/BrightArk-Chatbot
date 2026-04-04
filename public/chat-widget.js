@@ -1,10 +1,10 @@
 (function () {
   'use strict';
 
-  var PRIMARY = '#1a1a2e';
-  var ACCENT = '#4a9eff';
+  var PRIMARY = '#E06429';
+  var ACCENT = '#000000';
   var WELCOME =
-    "Hi! I'm the BrightArk Digital Expert. How can I help you today?";
+    "Hi! I'm the BrightArk Digital Expert Sarah. How can I help you today?";
 
   function getConfig() {
     var c = window.AI_CHAT_CONFIG;
@@ -31,6 +31,120 @@
     }
   }
 
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function escapeAttr(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;');
+  }
+
+  /** Only http(s) and simple mailto — blocks javascript:, data:, etc. */
+  function sanitizeHref(href) {
+    var h = String(href).trim();
+    if (!h || /[\s"'<>]/.test(h)) return null;
+    if (/^https?:\/\//i.test(h)) {
+      try {
+        var u = new URL(h);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+        return u.href;
+      } catch (e) {
+        return null;
+      }
+    }
+    if (/^mailto:/i.test(h)) {
+      var path = h.slice(7).split('?')[0];
+      if (!/^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i.test(path)) return null;
+      return 'mailto:' + path;
+    }
+    return null;
+  }
+
+  function trimUrlTrailingPunct(url) {
+    return url.replace(/[.,;:!?)]+$/g, '');
+  }
+
+  function linkAttrsForHref(safe) {
+    if (/^mailto:/i.test(safe)) {
+      return 'href="' + escapeAttr(safe) + '"';
+    }
+    return (
+      'href="' +
+      escapeAttr(safe) +
+      '" target="_blank" rel="noopener noreferrer"'
+    );
+  }
+
+  function linkifyBareUrlsOneLine(text) {
+    var re = /https?:\/\/[^\s<]+/gi;
+    var out = '';
+    var last = 0;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      var raw = m[0];
+      var trimmed = trimUrlTrailingPunct(raw);
+      out += escapeHtml(text.slice(last, m.index));
+      var safe = sanitizeHref(trimmed);
+      if (safe) {
+        out += '<a ' + linkAttrsForHref(safe) + '>' + escapeHtml(trimmed) + '</a>';
+      } else {
+        out += escapeHtml(raw);
+      }
+      last = m.index + raw.length;
+    }
+    out += escapeHtml(text.slice(last));
+    return out;
+  }
+
+  function linkifyBareUrlsInText(text) {
+    return text.split(/\r?\n/).map(linkifyBareUrlsOneLine).join('<br>');
+  }
+
+  /** Bot-only: markdown [label](url) + bare URLs; all other HTML escaped. */
+  function renderBotMessageHtml(raw) {
+    if (raw == null || raw === '') return '';
+    var s = String(raw);
+    var mdRe = /\[([^\]]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/gi;
+    var parts = [];
+    var last = 0;
+    var m;
+    while ((m = mdRe.exec(s)) !== null) {
+      if (m.index > last) {
+        parts.push({ t: 'text', v: s.slice(last, m.index) });
+      }
+      parts.push({ t: 'md', label: m[1], url: m[2] });
+      last = m.index + m[0].length;
+    }
+    if (last < s.length) {
+      parts.push({ t: 'text', v: s.slice(last) });
+    }
+    if (parts.length === 0) {
+      parts.push({ t: 'text', v: s });
+    }
+    return parts
+      .map(function (p) {
+        if (p.t === 'md') {
+          var safe = sanitizeHref(p.url);
+          if (!safe) {
+            return escapeHtml('[' + p.label + '](' + p.url + ')');
+          }
+          return (
+            '<a ' + linkAttrsForHref(safe) + '>' + escapeHtml(p.label) + '</a>'
+          );
+        }
+        return linkifyBareUrlsInText(p.v);
+      })
+      .join('');
+  }
+
   function el(tag, className, text) {
     var n = document.createElement(tag);
     if (className) n.className = className;
@@ -45,7 +159,7 @@
     s.textContent =
       '#brightark-chat-root{position:fixed;z-index:2147483646;font-family:system-ui,-apple-system,sans-serif;box-sizing:border-box}' +
       '#brightark-chat-root *,#brightark-chat-root *::before,#brightark-chat-root *::after{box-sizing:border-box}' +
-      '#brightark-chat-bubble{width:56px;height:56px;border-radius:50%;background:' +
+      '#brightark-chat-bubble{width:56px;height:56px;border-radius:35%;' +
       PRIMARY +
       ';color:#fff;border:none;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:26px;display:flex;align-items:center;justify-content:center;position:fixed;right:20px;bottom:20px;transition:transform .15s ease}' +
       '#brightark-chat-bubble:hover{transform:scale(1.05)}' +
@@ -65,12 +179,20 @@
       PRIMARY +
       ';color:#fff;border-bottom-right-radius:4px}' +
       '.brightark-msg.bot .brightark-msg-inner{background:#fff;color:#222;border:1px solid #e5e7eb;border-bottom-left-radius:4px}' +
-      '.brightark-thinking{font-style:italic;color:#666;font-size:13px;padding:8px 12px}' +
+      '.brightark-msg.bot .brightark-msg-inner a{color:#2563eb;text-decoration:underline;word-break:break-all}' +
+      '.brightark-msg.bot .brightark-msg-inner a:hover{color:#1d4ed8}' +
+      '.brightark-thinking{max-width:85%;margin-bottom:10px;display:flex}' +
+      '.brightark-thinking-bubble{background:#fff;border:1px solid #e5e7eb;border-radius:12px;border-bottom-left-radius:4px;padding:12px 16px;display:inline-flex}' +
+      '.brightark-thinking-dots{display:flex;gap:6px;align-items:center;height:8px}' +
+      '.brightark-thinking-dot{width:7px;height:7px;border-radius:50%;background:#9ca3af;animation:brightark-thinking-bounce 1.15s ease-in-out infinite both}' +
+      '.brightark-thinking-dot:nth-child(2){animation-delay:.2s}' +
+      '.brightark-thinking-dot:nth-child(3){animation-delay:.4s}' +
+      '@keyframes brightark-thinking-bounce{0%,60%,100%{transform:translateY(0);opacity:.35}30%{transform:translateY(-5px);opacity:1}}' +
       '#brightark-chat-input-row{display:flex;gap:8px;padding:10px 12px;border-top:1px solid #e5e7eb;background:#fff}' +
       '#brightark-chat-input{flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:14px;outline:none}' +
       '#brightark-chat-input:focus{border-color:' +
       ACCENT +
-      ';box-shadow:0 0 0 2px rgba(74,158,255,.2)}' +
+      ';box-shadow:0 0 0 2px rgba(232,232,232,.2)}' +
       '#brightark-chat-send{background:' +
       ACCENT +
       ';color:#fff;border:none;border-radius:8px;padding:0 16px;font-weight:600;cursor:pointer;font-size:14px}' +
@@ -141,7 +263,12 @@
 
     function appendMessage(role, text) {
       var wrap = el('div', 'brightark-msg ' + (role === 'user' ? 'user' : 'bot'));
-      var inner = el('div', 'brightark-msg-inner', text);
+      var inner = el('div', 'brightark-msg-inner', null);
+      if (role === 'user') {
+        inner.textContent = text;
+      } else {
+        inner.innerHTML = renderBotMessageHtml(text);
+      }
       wrap.appendChild(inner);
       messages.appendChild(wrap);
       scrollToBottom();
@@ -155,8 +282,18 @@
         return;
       }
       if (existing) return;
-      var t = el('div', 'brightark-thinking', '…');
+      var t = el('div', 'brightark-thinking', null);
       t.id = id;
+      t.setAttribute('role', 'status');
+      t.setAttribute('aria-live', 'polite');
+      t.setAttribute('aria-label', 'Assistant is typing');
+      var bubble = el('div', 'brightark-thinking-bubble', null);
+      var dots = el('div', 'brightark-thinking-dots', null);
+      for (var i = 0; i < 3; i++) {
+        dots.appendChild(el('span', 'brightark-thinking-dot', null));
+      }
+      bubble.appendChild(dots);
+      t.appendChild(bubble);
       messages.appendChild(t);
       scrollToBottom();
     }
@@ -301,7 +438,7 @@
               showThinking(false);
               if (!botInner) botInner = appendStreamingBotShell();
               fullReply += ev.text;
-              botInner.textContent = fullReply;
+              botInner.innerHTML = renderBotMessageHtml(fullReply);
               scrollToBottom();
             } else if (ev.type === 'done') {
               showThinking(false);
@@ -309,7 +446,7 @@
               if (Array.isArray(ev.conversationHistory)) {
                 conversationHistory = ev.conversationHistory;
               }
-              if (botInner) botInner.textContent = fullReply;
+              if (botInner) botInner.innerHTML = renderBotMessageHtml(fullReply);
               else if (fullReply) appendMessage('bot', fullReply);
             } else if (ev.type === 'error') {
               streamErr = new Error(
