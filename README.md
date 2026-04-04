@@ -2,7 +2,7 @@
 
 Production-oriented **Vercel serverless API** that runs an **OpenAI Agents** multi-agent workflow for BrightArk’s Shopify storefront, plus a **self-contained chat widget** you can load from your theme.
 
-The API accepts a shopper message and optional `conversationHistory`, runs `runWorkflow` in `workflow/agent.ts` (classification → return / retention / information agents), and returns a plain-text `reply` with an updated history for the next request.
+The API accepts a shopper message and optional `conversationHistory`, runs `runWorkflow` in `api/workflow/agent.ts` (classification → return / retention / information agents), and returns a plain-text `reply` with an updated history for the next request.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ npm install
 npm run build
 ```
 
-`npm run build` type-checks and compiles `workflow/` and `api/` with TypeScript.
+`npm run build` type-checks and compiles `api/` (including `api/workflow/`) with TypeScript.
 
 Run the API locally with the [Vercel CLI](https://vercel.com/docs/cli):
 
@@ -95,7 +95,7 @@ If the script lives in **Files** instead of theme assets, replace the last line 
 
 ## Updating assistant behavior
 
-Edit the `instructions` strings (and optional `tools`) on the agents in `workflow/agent.ts`:
+Edit the `instructions` strings (and optional `tools`) on the agents in `api/workflow/agent.ts`:
 
 - **Classification Agent** — routing rules to return / retention / information.
 - **Information Agent**, **Return Agent**, **Retention Agent** — tone and policies.
@@ -110,8 +110,8 @@ After changes, run `npm run build`, commit, and redeploy on Vercel.
 
 | Path                   | Role                                              |
 | ---------------------- | ------------------------------------------------- |
-| `api/chat.ts`          | Vercel function: POST `/api/chat`, CORS, workflow |
-| `workflow/agent.ts`    | `runWorkflow`, agents, guardrails, tools          |
+| `api/chat.ts`              | Vercel function: POST `/api/chat`, CORS, workflow |
+| `api/workflow/agent.ts`    | `runWorkflow`, agents, guardrails, tools          |
 | `public/chat-widget.js`| Shopify-facing chat UI (no npm deps)               |
 | `vercel.json`          | Node build for the API route                      |
 

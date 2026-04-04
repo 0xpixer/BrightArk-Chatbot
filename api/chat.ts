@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   runWorkflow,
   type ConversationTurn,
-} from '../workflow/agent';
+} from './workflow/agent.js';
 
 type ChatBody = {
   message?: string;
