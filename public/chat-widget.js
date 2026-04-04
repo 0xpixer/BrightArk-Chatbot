@@ -15,6 +15,22 @@
     return c;
   }
 
+  /** If apiEndpoint is the deployment root (path `/`), POST would hit static HTML with no CORS — use `/api/chat`. */
+  function resolveChatApiUrl(endpoint) {
+    var trimmed = endpoint.trim();
+    try {
+      var u = new URL(trimmed);
+      var path = u.pathname.replace(/\/+$/, '') || '/';
+      if (path === '/') {
+        u.pathname = '/api/chat';
+        return u.toString();
+      }
+      return trimmed;
+    } catch (e) {
+      return trimmed;
+    }
+  }
+
   function el(tag, className, text) {
     var n = document.createElement(tag);
     if (className) n.className = className;
@@ -66,6 +82,8 @@
   function init() {
     var config = getConfig();
     if (!config) return;
+
+    var apiUrl = resolveChatApiUrl(config.apiEndpoint);
 
     injectStyles();
 
@@ -170,7 +188,7 @@
       showThinking(true);
       send.disabled = true;
 
-      fetch(config.apiEndpoint, {
+      fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

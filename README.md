@@ -28,14 +28,13 @@ npx vercel dev
 
 Set environment variables in `.env.local` (loaded by `vercel dev`):
 
-| Variable         | Description                    |
-| ---------------- | ------------------------------ |
-| `OPENAI_API_KEY` | Your OpenAI secret key         |
-| `SHOPIFY_DOMAIN` | Optional; see CORS note below |
+| Variable         | Description            |
+| ---------------- | ---------------------- |
+| `OPENAI_API_KEY` | Your OpenAI secret key |
 
 The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow the CLI output).
 
-**Vercel:** Call **`https://YOUR-PROJECT.vercel.app/api/chat`** (POST). The deployment root `/` is intentionally minimal (empty page); a `404 NOT_FOUND` usually means you are not hitting `/api/chat`.
+**Vercel:** The widget must call **`https://YOUR-PROJECT.vercel.app/api/chat`** (POST), not the site root `/`. The widget auto-fixes a root-only URL (e.g. `https://…vercel.app/`) to `/api/chat`. The deployment root `/` is static HTML and does not handle CORS for API calls.
 
 ### Note on dependencies
 
@@ -47,23 +46,15 @@ The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow t
 2. In [Vercel](https://vercel.com), **Import** the project and select the repo.
 3. Under **Settings → Environment Variables**, add:
 
-| Variable           | Description                                      | Example                |
-| ------------------ | ------------------------------------------------ | ---------------------- |
-| `OPENAI_API_KEY`   | OpenAI secret key                                | `sk-...`               |
-| `SHOPIFY_DOMAIN`   | Allowed storefront origins for CORS (optional)   | See CORS section below |
+| Variable         | Description        | Example  |
+| ---------------- | ------------------ | -------- |
+| `OPENAI_API_KEY` | OpenAI secret key  | `sk-...` |
 
 4. Deploy. Your API URL will look like `https://your-project.vercel.app/api/chat`.
 
 ### CORS
 
-- If `SHOPIFY_DOMAIN` is **unset**, responses use `Access-Control-Allow-Origin: *` (simplest for testing).
-- If set, the API **only** allows browser `Origin` values that match your list. Use a **comma-separated** list of hostnames (or full `https://` URLs) for every domain where the widget runs—for example a custom domain **and** the `myshopify.com` host:
-
-  `thebrightark.com, www.thebrightark.com, your-store.myshopify.com`
-
-  Do not include paths. The response echoes the request’s `Origin` when it matches (required for JSON `POST` from the storefront).
-
-- If the widget loads on `https://thebrightark.com` but `SHOPIFY_DOMAIN` only lists `*.myshopify.com`, the browser will block the request with a CORS error.
+`/api/chat` sends `Access-Control-Allow-Origin: *`, allows `POST` and `OPTIONS`, `Content-Type`, and `Access-Control-Max-Age: 86400` for preflight caching. Tighten this in production if you need an origin allowlist.
 
 ## Shopify: widget installation
 
