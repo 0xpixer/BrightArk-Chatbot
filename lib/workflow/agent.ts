@@ -300,6 +300,69 @@ function buildConversationItems(workflow: WorkflowInput): AgentInputItem[] {
   return items;
 }
 
+/** True if text is only the classifier JSON (models often echo this if it stays in history). */
+function isClassificationOnlyPayload(text: string): boolean {
+  try {
+    const o = JSON.parse(text.trim()) as Record<string, unknown>;
+    const keys = Object.keys(o);
+    return (
+      keys.length === 1 &&
+      keys[0] === 'classification' &&
+      (o.classification === 'product_promotion' || o.classification === 'get_information')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function cloneAgentInputItems(history: AgentInputItem[]): AgentInputItem[] {
+  try {
+    return structuredClone(history) as AgentInputItem[];
+  } catch {
+    return JSON.parse(JSON.stringify(history)) as AgentInputItem[];
+  }
+}
+
+/**
+ * Replace the classifier's structured JSON assistant turn with a prose hint so Sarah / Information
+ * models answer in natural language instead of repeating `{"classification":...}`.
+ */
+function scrubClassificationAssistantEcho(
+  history: AgentInputItem[],
+  classification: 'product_promotion' | 'get_information',
+): AgentInputItem[] {
+  const hint =
+    classification === 'get_information'
+      ? '[Routing: the shopper needs factual product or support information. Answer in clear, natural sentences. Do not output JSON.]'
+      : '[Routing: the shopper wants warm brand conversation as Sarah. Answer in natural sentences. Do not output JSON.]';
+
+  const clone = cloneAgentInputItems(history);
+  for (let i = clone.length - 1; i >= 0; i--) {
+    const item = clone[i] as {
+      type?: string;
+      role?: string;
+      content?: unknown;
+    };
+    if (item.type !== 'message' || item.role !== 'assistant' || !Array.isArray(item.content)) {
+      continue;
+    }
+    let touched = false;
+    for (const part of item.content) {
+      const p = part as { type?: string; text?: string };
+      if (
+        p?.type === 'output_text' &&
+        typeof p.text === 'string' &&
+        isClassificationOnlyPayload(p.text)
+      ) {
+        p.text = hint;
+        touched = true;
+      }
+    }
+    if (touched) break;
+  }
+  return clone;
+}
+
 function finalOutputToText(output: unknown): string {
   if (typeof output === 'string') return output;
   if (output == null) return '';
@@ -338,10 +401,21 @@ async function runStreamingFinalAgent(
     reader.releaseLock();
   }
   const fo = streamed.finalOutput;
-  const reply =
+  let reply =
     typeof fo === 'string' && fo.trim() !== ''
       ? fo
       : accumulated;
+  if (isClassificationOnlyPayload(reply.trim())) {
+    const r2 = await runner.run(agent, streamed.history, { maxTurns: 25, stream: false });
+    if (r2.finalOutput === undefined || r2.finalOutput === null) {
+      throw new Error('Agent result is undefined');
+    }
+    reply =
+      typeof r2.finalOutput === 'string' && r2.finalOutput.trim() !== ''
+        ? r2.finalOutput
+        : finalOutputToText(r2.finalOutput);
+    return { reply, history: r2.history };
+  }
   return { reply, history: streamed.history };
 }
 
@@ -396,6 +470,10 @@ export const runWorkflowStreaming = async (
     }
 
     const classification = classificationResult.finalOutput.classification;
+    conversationHistory = scrubClassificationAssistantEcho(
+      classificationResult.history,
+      classification,
+    );
 
     if (classification === 'product_promotion') {
       const { reply } = await runStreamingFinalAgent(runner, sarahAgent, conversationHistory, onDelta);
@@ -456,6 +534,10 @@ export const runWorkflow = async (
     }
 
     const classification = classificationResult.finalOutput.classification;
+    conversationHistory = scrubClassificationAssistantEcho(
+      classificationResult.history,
+      classification,
+    );
 
     if (classification === 'product_promotion') {
       const r = await runner.run(sarahAgent, conversationHistory, { maxTurns: 25 });

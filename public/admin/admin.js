@@ -104,12 +104,33 @@
 
   function renderLogin() {
     api('/admin?op=status', { method: 'GET' }).then(function (st) {
-      var db = st.json && st.json.database;
-      var hasUsers = st.json && st.json.hasUsers;
+      var j = st.json || {};
+      var configured = j.database === true;
+      var connectedFail = configured && j.connected === false;
+      var dbReady = st.ok && configured && !connectedFail;
+      var hasUsers = j.hasUsers;
       var regLink =
-        db && !hasUsers
+        dbReady && !hasUsers
           ? '<p>No admin yet — <a href="#/register">create the first account</a>.</p>'
           : '';
+      var errBanner = '';
+      if (!st.ok) {
+        errBanner =
+          '<p class="msg err">Status check failed (HTTP ' +
+          esc(st.status) +
+          '). In Vercel → your project → <strong>Logs</strong>, find errors for <code>/api/admin?op=status</code>.</p>';
+      } else if (!configured) {
+        errBanner =
+          '<p class="msg err">Database URL not visible to the server. In Vercel → Settings → Environment Variables: add <strong>DATABASE_URL</strong> for <strong>Production</strong> (or use the Vercel Postgres/Neon integration), then <strong>Redeploy</strong>. If you only see POSTGRES_PRISMA_URL, that is supported too — redeploy after connecting the DB.</p>';
+      } else if (connectedFail) {
+        errBanner =
+          '<p class="msg err">' +
+          esc(
+            j.error ||
+              'DATABASE_URL is set but the server could not reach the database. Run migrations against this DB, verify SSL (Neon: ?sslmode=require), then redeploy.',
+          ) +
+          '</p>';
+      }
       main.innerHTML =
         '<div class="card"><h2>Sign in</h2><div id="login-msg"></div>' +
         regLink +
@@ -118,9 +139,7 @@
         '<label>Password</label><input name="password" type="password" required autocomplete="current-password" />' +
         '<button class="btn" type="submit">Sign in</button></form>' +
         '<p style="margin-top:16px"><a class="btn secondary" href="/api/auth/google">Continue with Google</a></p>' +
-        (!db
-          ? '<p class="msg err">Database URL not visible to the server. In Vercel → Settings → Environment Variables: add <strong>DATABASE_URL</strong> for <strong>Production</strong> (or use the Vercel Postgres/Neon integration), then <strong>Redeploy</strong>. If you only see POSTGRES_PRISMA_URL, that is supported too — redeploy after connecting the DB.</p>'
-          : '') +
+        errBanner +
         '</div>';
       document.getElementById('login-form').onsubmit = function (e) {
         e.preventDefault();

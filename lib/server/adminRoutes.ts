@@ -11,6 +11,7 @@ import {
   hashPassword,
   destroySession,
   clearSessionCookie,
+  getSessionUser,
 } from './auth.js';
 import { requireAdminUser } from './requireAdminUser.js';
 import { getSiteSettingsDTO, loadSiteSettingsRow } from './siteSettings.js';
@@ -53,8 +54,19 @@ async function handleStatus(req: VercelRequest, res: VercelResponse): Promise<vo
     res.status(200).json({ database: false, hasUsers: false });
     return;
   }
-  const count = await prisma.user.count();
-  res.status(200).json({ database: true, hasUsers: count > 0 });
+  try {
+    const count = await prisma.user.count();
+    res.status(200).json({ database: true, hasUsers: count > 0, connected: true });
+  } catch (e) {
+    console.error('[admin status] database check failed', e);
+    res.status(200).json({
+      database: true,
+      hasUsers: false,
+      connected: false,
+      error:
+        'DATABASE_URL is set but the server could not query the database. Typical fixes: run `npx prisma migrate deploy` against this database; use Neon’s pooled URL with `?sslmode=require`; then redeploy.',
+    });
+  }
 }
 
 type LoginBody = { email?: string; password?: string };
@@ -168,18 +180,36 @@ type MePatchBody = { username?: string; password?: string; currentPassword?: str
 
 async function handleMe(req: VercelRequest, res: VercelResponse): Promise<void> {
   res.setHeader('Content-Type', 'application/json');
+  if (req.method === 'GET') {
+    if (!isDatabaseConfigured()) {
+      res.status(200).json({ user: null });
+      return;
+    }
+    try {
+      const sessionUser = await getSessionUser(req);
+      if (!sessionUser) {
+        res.status(200).json({ user: null });
+        return;
+      }
+      res.status(200).json({
+        user: {
+          id: sessionUser.id,
+          email: sessionUser.email,
+          username: sessionUser.username,
+        },
+      });
+    } catch (e) {
+      console.error('[admin me GET]', e);
+      res.status(200).json({ user: null });
+    }
+    return;
+  }
   if (!isDatabaseConfigured()) {
     res.status(503).json({ error: 'DATABASE_URL is not configured' });
     return;
   }
   const user = await requireAdminUser(req, res);
   if (!user) return;
-  if (req.method === 'GET') {
-    res.status(200).json({
-      user: { id: user.id, email: user.email, username: user.username },
-    });
-    return;
-  }
   if (req.method !== 'PATCH') {
     res.status(405).json({ error: 'Method not allowed' });
     return;

@@ -8,6 +8,7 @@
   "scripts": {
     "postinstall": "prisma generate",
     "build": "prisma generate && tsc",
+    "build:deploy": "prisma migrate deploy && prisma generate && tsc",
     "db:seed": "prisma db seed"
   },
   "prisma": {
