@@ -6,6 +6,8 @@ export type WidgetTheme = {
   primary?: string;
   /** Floating launcher button (#brightark-chat-bubble) background; defaults to primary if unset. */
   launcherBubbleBg?: string;
+  /** 0–100: mix launcher color with transparent (100 = solid). Uses CSS color-mix. */
+  launcherBubbleOpacityPct?: number;
   accent?: string;
   panelBg?: string;
   messagesBg?: string;
@@ -61,9 +63,15 @@ export function themeToCssVars(t: WidgetTheme): Record<string, string> {
   const launcher =
     (m.launcherBubbleBg && String(m.launcherBubbleBg).trim()) ||
     primary;
+  const launcherOp = m.launcherBubbleOpacityPct;
+  const launcherOpPct =
+    typeof launcherOp === 'number' && Number.isFinite(launcherOp)
+      ? Math.min(100, Math.max(0, Math.round(launcherOp)))
+      : 100;
   return {
     '--ba-primary': primary,
     '--ba-launcher-bubble-bg': launcher,
+    '--ba-launcher-opacity-pct': `${launcherOpPct}%`,
     '--ba-accent': m.accent ?? DEFAULT_WIDGET_THEME.accent!,
     '--ba-panel-bg': m.panelBg ?? DEFAULT_WIDGET_THEME.panelBg!,
     '--ba-messages-bg': m.messagesBg ?? DEFAULT_WIDGET_THEME.messagesBg!,

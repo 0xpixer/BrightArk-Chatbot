@@ -222,9 +222,14 @@
         '<div><label>Accent</label><input name="accent" type="text" value="' +
         esc(t.accent) +
         '" /></div></div>' +
-        '<label>Launcher button background (floating chat bubble)</label><input name="launcherBubbleBg" type="text" value="' +
+        '<div class="row2">' +
+        '<div><label>Launcher button color</label><input name="launcherBubbleBg" type="text" value="' +
         esc(t.launcherBubbleBg) +
-        '" placeholder="defaults to Primary if empty" />' +
+        '" placeholder="defaults to Primary" /></div>' +
+        '<div><label>Launcher opacity (%)</label><input name="launcherBubbleOpacityPct" type="number" min="0" max="100" step="1" value="' +
+        esc(t.launcherBubbleOpacityPct != null ? String(t.launcherBubbleOpacityPct) : '') +
+        '" placeholder="100 = solid" title="100 = solid color; lower = more transparent (color shows through)" /></div></div>' +
+        '<p class="hint" style="margin:0 0 12px;font-size:13px;opacity:0.85">Use opacity below 100 for a tinted glass effect; the emoji stays fully visible.</p>' +
         '<div class="row2">' +
         '<div><label>Panel background</label><input name="panelBg" type="text" value="' +
         esc(t.panelBg) +
@@ -293,7 +298,10 @@
         var fd = new FormData(e.target);
         var theme = {};
         fd.forEach(function (v, k) {
-          if (k === 'fontSizePx' || k === 'bubbleRadiusPx' || k === 'bubbleRadiusCornerPx' || k === 'panelRadiusPx' || k === 'borderWidthPx') {
+          if (k === 'launcherBubbleOpacityPct') {
+            var os = String(v).trim();
+            theme[k] = os === "" ? undefined : Math.min(100, Math.max(0, Math.round(Number(os))));
+          } else if (k === 'fontSizePx' || k === 'bubbleRadiusPx' || k === 'bubbleRadiusCornerPx' || k === 'panelRadiusPx' || k === 'borderWidthPx') {
             theme[k] = v ? Number(v) : undefined;
           } else if (v) theme[k] = String(v);
         });
