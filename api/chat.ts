@@ -4,19 +4,20 @@ import {
   runWorkflowStreaming,
   type ConversationTurn,
 } from './workflow/agent.js';
+import { loadSiteSettingsRow, buildWorkflowOptionsFromDb } from './lib/siteSettings.js';
+import { persistChatTurn } from './lib/dialogueStore.js';
 
 type ChatBody = {
   message?: string;
   conversationHistory?: unknown;
-  /** IANA time zone from the browser, e.g. `America/New_York`. */
   timezone?: string;
-  /** When true, response is `text/event-stream` with JSON lines in SSE `data:` frames. */
   stream?: boolean;
+  /** Client-generated id; messages are appended when DATABASE_URL is set. */
+  conversationId?: string;
 };
 
 const DEFAULT_TIMEZONE = 'Asia/Singapore';
 
-/** Accept only valid IANA zones; fall back if the client sends garbage. */
 function resolveTimeZone(raw: unknown): string {
   if (typeof raw !== 'string') return DEFAULT_TIMEZONE;
   const tz = raw.trim();
@@ -100,15 +101,6 @@ export default async function handler(
     return;
   }
 
-  if (!process.env.OPENAI_API_KEY?.trim()) {
-    res.status(500).json({
-      error: 'Server misconfiguration',
-      reply: 'Chat is temporarily unavailable.',
-      conversationHistory: [],
-    });
-    return;
-  }
-
   let body: ChatBody;
   try {
     body =
@@ -129,6 +121,21 @@ export default async function handler(
   const conversationHistory = parseHistory(body.conversationHistory);
   const timeZone = resolveTimeZone(body.timezone);
   const userLocalDateToday = formatUserLocalDate(timeZone);
+  const conversationId =
+    typeof body.conversationId === 'string' ? body.conversationId.trim() : undefined;
+
+  const settingsRow = await loadSiteSettingsRow();
+  const workflowOptions = buildWorkflowOptionsFromDb(settingsRow);
+
+  if (!workflowOptions.runtime.openaiApiKey.trim()) {
+    res.status(500).json({
+      error: 'Server misconfiguration',
+      reply: 'Chat is temporarily unavailable.',
+      conversationHistory: [],
+    });
+    return;
+  }
+
   const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
   const wantStream =
     body.stream === true || accept.includes('text/event-stream');
@@ -151,12 +158,14 @@ export default async function handler(
         (text) => {
           sendSse(res, { type: 'delta', text });
         },
+        workflowOptions,
       );
       const nextHistory: ConversationTurn[] = [
         ...conversationHistory,
         { role: 'user', content: message },
         { role: 'assistant', content: reply },
       ];
+      await persistChatTurn(conversationId, message, reply);
       sendSse(res, {
         type: 'done',
         reply,
@@ -175,18 +184,22 @@ export default async function handler(
   }
 
   try {
-    const result = await runWorkflow({
-      input_as_text: message,
-      conversationHistory,
-      timezone: timeZone,
-      userLocalDateToday,
-    });
+    const result = await runWorkflow(
+      {
+        input_as_text: message,
+        conversationHistory,
+        timezone: timeZone,
+        userLocalDateToday,
+      },
+      workflowOptions,
+    );
     const reply = extractReply(result);
     const nextHistory: ConversationTurn[] = [
       ...conversationHistory,
       { role: 'user', content: message },
       { role: 'assistant', content: reply },
     ];
+    await persistChatTurn(conversationId, message, reply);
     res.status(200).json({ reply, conversationHistory: nextHistory });
   } catch (err) {
     console.error('chat handler error', err);

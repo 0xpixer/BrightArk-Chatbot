@@ -1,26 +1,34 @@
 /**
- * BrightArk workflow — Agents SDK snapshot from Agent Builder (Code tab).
- * Runs on this server with `OPENAI_API_KEY`. `OPENAI_WORKFLOW_ID` is for tracing only.
+ * BrightArk workflow — Agents SDK. `OPENAI_WORKFLOW_ID` is for tracing only.
+ * Model, base URL, and prompts can be overridden per request via `WorkflowRunOptions`.
  */
 import { Agent, Runner, assistant, user, withTrace } from '@openai/agents';
+import { OpenAIProvider } from '@openai/agents-openai';
 import type { AgentInputItem } from '@openai/agents';
 import { runGuardrails, type GuardrailBundle } from '@openai/guardrails';
 import '@openai/guardrails';
 import OpenAI from 'openai';
 import { z } from 'zod';
+import type { WorkflowRuntimeConfig } from './runtimeConfig.js';
+import {
+  DEFAULT_PROMPT_CLASSIFICATION,
+  DEFAULT_PROMPT_INFORMATION_AGENT,
+  DEFAULT_PROMPT_SARAH_INTRO,
+  DEFAULT_PROMPT_SARAH_TONE,
+} from './promptDefaults.js';
 
 const WORKFLOW_ID =
   process.env.OPENAI_WORKFLOW_ID?.trim() ||
   'wf_69d06a9b8f708190a49d2fb0a96f45210dda58e7b54f5c6e';
+
+export type { WorkflowRuntimeConfig } from './runtimeConfig.js';
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
 
 export type WorkflowInput = {
   input_as_text: string;
   conversationHistory?: ConversationTurn[];
-  /** Resolved IANA zone from the client (server-validated). */
   timezone?: string;
-  /** Calendar date in that zone, e.g. "Saturday, April 4, 2026". */
   userLocalDateToday?: string;
 };
 
@@ -31,18 +39,63 @@ export type WorkflowResult =
   | { safe_text: string }
   | Record<string, unknown>;
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const jailbreakGuardrailConfig: GuardrailBundle = {
-  guardrails: [
-    {
-      name: 'Jailbreak',
-      config: { model: 'gpt-5-nano', confidence_threshold: 0.7 },
-    },
-  ],
+export type WorkflowRunOptions = {
+  runtime: WorkflowRuntimeConfig;
+  /** OpenAI-compatible client for @openai/guardrails (use a real OpenAI key when the main LLM is a third-party API). */
+  guardrailClient: OpenAI;
+  /** Model name the guardrail bundle calls (must exist on guardrailClient’s API). */
+  guardrailModel: string;
 };
 
-const context = { guardrailLlm: client };
+function defaultRuntime(): WorkflowRuntimeConfig {
+  const key = process.env.OPENAI_API_KEY?.trim() ?? '';
+  return {
+    openaiApiKey: key,
+    baseUrl: undefined,
+    models: {
+      classification: 'gpt-4.1-nano',
+      sarah: 'gpt-5-nano',
+      information: 'gpt-4.1-nano',
+    },
+    prompts: {
+      classification: DEFAULT_PROMPT_CLASSIFICATION,
+      sarahIntro: DEFAULT_PROMPT_SARAH_INTRO,
+      sarahTone: DEFAULT_PROMPT_SARAH_TONE,
+      informationAgent: DEFAULT_PROMPT_INFORMATION_AGENT,
+    },
+  };
+}
+
+export function resolveWorkflowRunOptions(override?: Partial<WorkflowRunOptions>): WorkflowRunOptions {
+  const runtime = override?.runtime ?? defaultRuntime();
+  const guardrailKey =
+    process.env.GUARDRAILS_OPENAI_API_KEY?.trim() ||
+    process.env.OPENAI_API_KEY?.trim() ||
+    runtime.openaiApiKey;
+  const guardrailBase =
+    process.env.GUARDRAILS_OPENAI_BASE_URL?.trim() || undefined;
+  const guardrailClient =
+    override?.guardrailClient ??
+    new OpenAI({
+      apiKey: guardrailKey,
+      baseURL: guardrailBase,
+    });
+  const guardrailModel =
+    override?.guardrailModel ??
+    (process.env.GUARDRAIL_MODEL?.trim() || 'gpt-4o-mini');
+  return { runtime, guardrailClient, guardrailModel };
+}
+
+function jailbreakBundle(model: string): GuardrailBundle {
+  return {
+    guardrails: [
+      {
+        name: 'Jailbreak',
+        config: { model, confidence_threshold: 0.7 },
+      },
+    ],
+  };
+}
 
 function guardrailsHasTripwire(results: unknown[]): boolean {
   return (results ?? []).some((r) => (r as { tripwireTriggered?: boolean })?.tripwireTriggered === true);
@@ -61,7 +114,11 @@ function getGuardrailSafeText(results: unknown[], fallbackText: string): string 
   return pii?.info?.anonymized_text ?? fallbackText;
 }
 
-async function scrubConversationHistory(history: unknown[], piiOnly: GuardrailBundle): Promise<void> {
+async function scrubConversationHistory(
+  history: unknown[],
+  piiOnly: GuardrailBundle,
+  guardrailContext: { guardrailLlm: OpenAI },
+): Promise<void> {
   for (const msg of history ?? []) {
     const content = Array.isArray((msg as { content?: unknown })?.content)
       ? (msg as { content: unknown[] }).content
@@ -73,18 +130,23 @@ async function scrubConversationHistory(history: unknown[], piiOnly: GuardrailBu
         (part as { type?: string }).type === 'input_text' &&
         typeof (part as { text?: string }).text === 'string'
       ) {
-        const res = await runGuardrails((part as { text: string }).text, piiOnly, context, true);
+        const res = await runGuardrails((part as { text: string }).text, piiOnly, guardrailContext, true);
         (part as { text: string }).text = getGuardrailSafeText(res, (part as { text: string }).text);
       }
     }
   }
 }
 
-async function scrubWorkflowInput(workflow: Record<string, unknown>, inputKey: string, piiOnly: GuardrailBundle): Promise<void> {
+async function scrubWorkflowInput(
+  workflow: Record<string, unknown>,
+  inputKey: string,
+  piiOnly: GuardrailBundle,
+  guardrailContext: { guardrailLlm: OpenAI },
+): Promise<void> {
   if (!workflow || typeof workflow !== 'object') return;
   const value = workflow[inputKey];
   if (typeof value !== 'string') return;
-  const res = await runGuardrails(value, piiOnly, context, true);
+  const res = await runGuardrails(value, piiOnly, guardrailContext, true);
   workflow[inputKey] = getGuardrailSafeText(res, value);
 }
 
@@ -93,9 +155,10 @@ async function runAndApplyGuardrails(
   config: GuardrailBundle,
   history: unknown[],
   workflow: Record<string, unknown>,
+  guardrailContext: { guardrailLlm: OpenAI },
 ) {
   const guardrails = Array.isArray(config?.guardrails) ? config.guardrails : [];
-  const results = await runGuardrails(inputText, config, context, true);
+  const results = await runGuardrails(inputText, config, guardrailContext, true);
   const shouldMaskPII = guardrails.find(
     (g) =>
       (g as { name?: string; config?: { block?: boolean } })?.name === 'Contains PII' &&
@@ -104,9 +167,9 @@ async function runAndApplyGuardrails(
   );
   if (shouldMaskPII) {
     const piiOnly: GuardrailBundle = { guardrails: [shouldMaskPII as GuardrailBundle['guardrails'][number]] };
-    await scrubConversationHistory(history, piiOnly);
-    await scrubWorkflowInput(workflow, 'input_as_text', piiOnly);
-    await scrubWorkflowInput(workflow, 'input_text', piiOnly);
+    await scrubConversationHistory(history, piiOnly, guardrailContext);
+    await scrubWorkflowInput(workflow, 'input_as_text', piiOnly, guardrailContext);
+    await scrubWorkflowInput(workflow, 'input_text', piiOnly, guardrailContext);
   }
   const hasTripwire = guardrailsHasTripwire(results);
   const safeText = getGuardrailSafeText(results, inputText) ?? inputText;
@@ -158,84 +221,55 @@ function buildGuardrailFailOutput(results: unknown[]) {
   };
 }
 
-/** Schema aligned with routing branches (Builder text listed conflicting labels; enum must match `if` branches). */
 const ClassificationAgentSchema = z.object({
   classification: z.enum(['product_promotion', 'get_information']),
 });
 
-const classificationAgent = new Agent({
-  name: 'Classification agent',
-  instructions: `Classify the user’s intent into exactly one of:
-- **product_promotion**: pricing, promotions, deals, “why choose BrightArk”, commercial positioning, or general sales-oriented questions.
-- **get_information**: product specs, clinical/technical use, troubleshooting, partner tiers detail, support contacts, or any detailed factual BrightArk question.
+function buildAgents(runtime: WorkflowRuntimeConfig) {
+  const classificationAgent = new Agent({
+    name: 'Classification agent',
+    instructions: runtime.prompts.classification,
+    model: runtime.models.classification,
+    outputType: ClassificationAgentSchema,
+    modelSettings: {
+      temperature: 1,
+      topP: 1,
+      maxTokens: 2048,
+      store: true,
+    },
+  });
 
-If unsure, choose **get_information**.`,
-  model: 'gpt-4.1-nano',
-  outputType: ClassificationAgentSchema,
-  modelSettings: {
-    temperature: 1,
-    topP: 1,
-    maxTokens: 2048,
-    store: true,
-  },
-});
+  const sarahInstructions =
+    runtime.prompts.sarahIntro.trim() +
+    '\n\nCommunication tone: ' +
+    runtime.prompts.sarahTone.trim();
 
-const informationAgent = new Agent({
-  name: 'Information agent',
-  instructions: `BrightArk Digital Expert: System Instructions
-Role: You are Sarah. You are the BrightArk Digital Expert, a professional assistant for dentists and distributors. Your mission is to provide technical, clinical, and commercial information regarding BrightArk’s end-to-end digital dentistry solutions. Respond using professional, approachable, and friendly language.
-Communication Tone: Professional, innovative, and concise. Always prioritize accuracy and efficiency to reflect BrightArk’s core values of Innovation, Care, and Integrity.
- -------------------------------------------------------------------------------- 
-1. Product Ecosystem Knowledge (Required Mappings)
-BrightArk iAlign (Clear Aligners): Features iMemory™ Shape Memory Technology that self-recovers up to 99.8% of its original state when soaked in warm water to maintain consistent force. (https://thebrightark.com/pages/ialign)
-BrightArk iScan (Intraoral Scanner): An ultra-lightweight (210g), calibration-free scanner. It features AI lesion detection for 8 major issues and integrated anti-fog heating.(https://thebrightark.com/pages/iscan)
-BrightArk iDesign (AI Platform): An intelligent medical application for organizing records, performing cephalometric/3D analysis, and fusing CBCT data with crown scans.(https://thebrightark.com/pages/idesign)
-BrightArk iTracker: An AI monitoring system for weekly "smile selfies," allowing remote treatment tracking without frequent clinic visits.
-BrightArk iShade (Digital Shade Detector): Uses spectrophotometer technology to achieve 92.5% accuracy in shade matching (compared to 67.5% with traditional guides).(https://thebrightark.com/pages/ishade)
-iSmile Simulator (or iSmile): Take Upload a clear, front-facing smile photo to preview your AI-powered alignment simulation.Please note: this does not replace a consultation with a qualified aligner provider. Try here: ismile.thebrightark.com(https://thebrightark.com/pages/ismile)
- -------------------------------------------------------------------------------- 
-2. Commercial & Support Programs
-Partner Program: Offer tiered benefits (Gold, Platinum, Diamond) based on case volume, including online training, offline seminars, and discounts ranging from 10% to 30%.
-Referral Program: Dentists earn a 2% referral fee on paid order values from their referee’s clinic for the first 12 months.
-Global Support: BrightArk provides local service teams in Singapore (HQ), the United States, Indonesia, Thailand, and Australia.
-Become to a partner clinic or distributor: Contact Us through email info@thebrightark.com or leave a message here https://thebrightark.com/pages/contact , our team will reach out to you.
- -------------------------------------------------------------------------------- 
-3. Technical Troubleshooting
-iScan Setup: Requires Windows 10/11 Pro/Corporate (64-bit), minimum 16GB RAM, and an NVIDIA GeForce 1660GTX or higher (AMD cards not supported).
-iShade Inaccuracy: Instruct users to perform white balance calibration by placing the device on its base and ensure the probe is clean and parallel to the tooth surface.
-iAlign Maintenance: Patients must wear aligners for 22+ hours daily. Only cool water is permitted; hot liquids will deform the shape-memory material.
- -------------------------------------------------------------------------------- 
-4. Agent Operational Rules
-Be Direct: Do not provide unnecessary preamble.
-Dentist/Distributor Focus: If a user asks about becoming a partner, immediately mention the gold/platinum/diamond tiers and clinical support.
-Safety First: For any reports of pain or allergic reactions, the agent must instruct the user to stop use and contact a trained professional immediately.
+  const sarahAgent = new Agent({
+    name: 'Agent',
+    instructions: sarahInstructions,
+    model: runtime.models.sarah,
+    modelSettings: {
+      temperature: 1,
+      topP: 1,
+      maxTokens: 2048,
+      store: true,
+    },
+  });
 
-Important: 
-1.For those questions you can not answer, ask customers to info@thebrightark.com or leave a message in the contact page https://thebrightark.com/pages/contact
-2. Only answer questions related to BrightArk and products.
-3. if the content contains a link, use hyperlink to allow user click it.`,
-  model: 'gpt-4.1-nano',
-  modelSettings: {
-    temperature: 1,
-    topP: 1,
-    maxTokens: 2048,
-    store: true,
-  },
-});
+  const informationAgent = new Agent({
+    name: 'Information agent',
+    instructions: runtime.prompts.informationAgent,
+    model: runtime.models.information,
+    modelSettings: {
+      temperature: 1,
+      topP: 1,
+      maxTokens: 2048,
+      store: true,
+    },
+  });
 
-/** General Sarah agent for product_promotion path (Builder had an empty branch). */
-const sarahAgent = new Agent({
-  name: 'Agent',
-  instructions:
-    'You are Sarah, a BrightArk Digital Expert. Respond using professional, approachable, and friendly language.',
-  model: 'gpt-5-nano',
-  modelSettings: {
-    temperature: 1,
-    topP: 1,
-    maxTokens: 2048,
-    store: true,
-  },
-});
+  return { classificationAgent, sarahAgent, informationAgent };
+}
 
 function buildUserMessageText(workflow: WorkflowInput): string {
   const tz = workflow.timezone?.trim();
@@ -276,7 +310,7 @@ const STREAM_REFUSAL_REPLY = "I'm sorry, I can't help with that.";
 
 async function runStreamingFinalAgent(
   runner: Runner,
-  agent: typeof sarahAgent | typeof informationAgent,
+  agent: Agent<any, any>,
   history: AgentInputItem[],
   onDelta: (text: string) => void,
 ): Promise<{ reply: string; history: AgentInputItem[] }> {
@@ -311,26 +345,41 @@ async function runStreamingFinalAgent(
   return { reply, history: streamed.history };
 }
 
+function makeRunner(runtime: WorkflowRuntimeConfig): Runner {
+  const provider = new OpenAIProvider({
+    apiKey: runtime.openaiApiKey,
+    baseURL: runtime.baseUrl || undefined,
+  });
+  return new Runner({
+    modelProvider: provider,
+    traceMetadata: {
+      __trace_source__: 'agent-builder',
+      workflow_id: WORKFLOW_ID,
+    },
+  });
+}
+
 export const runWorkflowStreaming = async (
   workflow: WorkflowInput,
   onDelta: (text: string) => void,
+  options?: WorkflowRunOptions,
 ): Promise<{ reply: string }> => {
+  const opts = options ?? resolveWorkflowRunOptions();
+  const { classificationAgent, sarahAgent, informationAgent } = buildAgents(opts.runtime);
+  const guardrailContext = { guardrailLlm: opts.guardrailClient };
+
   return await withTrace('BrightArk Chatbot', async () => {
     const workflowRecord = workflow as unknown as Record<string, unknown>;
     let conversationHistory: AgentInputItem[] = buildConversationItems(workflow);
 
-    const runner = new Runner({
-      traceMetadata: {
-        __trace_source__: 'agent-builder',
-        workflow_id: WORKFLOW_ID,
-      },
-    });
+    const runner = makeRunner(opts.runtime);
 
     const { hasTripwire: tripwire } = await runAndApplyGuardrails(
       workflow.input_as_text,
-      jailbreakGuardrailConfig,
+      jailbreakBundle(opts.guardrailModel),
       conversationHistory as unknown[],
       workflowRecord,
+      guardrailContext,
     );
 
     if (tripwire) {
@@ -369,24 +418,27 @@ export const runWorkflowStreaming = async (
   });
 };
 
-export const runWorkflow = async (workflow: WorkflowInput): Promise<WorkflowResult> => {
+export const runWorkflow = async (
+  workflow: WorkflowInput,
+  options?: WorkflowRunOptions,
+): Promise<WorkflowResult> => {
+  const opts = options ?? resolveWorkflowRunOptions();
+  const { classificationAgent, sarahAgent, informationAgent } = buildAgents(opts.runtime);
+  const guardrailContext = { guardrailLlm: opts.guardrailClient };
+
   return await withTrace('BrightArk Chatbot', async () => {
     const workflowRecord = workflow as unknown as Record<string, unknown>;
     let conversationHistory: AgentInputItem[] = buildConversationItems(workflow);
 
-    const runner = new Runner({
-      traceMetadata: {
-        __trace_source__: 'agent-builder',
-        workflow_id: WORKFLOW_ID,
-      },
-    });
+    const runner = makeRunner(opts.runtime);
 
     const guardrailsInputText = workflow.input_as_text;
     const { hasTripwire: tripwire, failOutput: guardrailsFailOutput } = await runAndApplyGuardrails(
       guardrailsInputText,
-      jailbreakGuardrailConfig,
+      jailbreakBundle(opts.guardrailModel),
       conversationHistory as unknown[],
       workflowRecord,
+      guardrailContext,
     );
 
     if (tripwire) {

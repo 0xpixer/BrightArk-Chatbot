@@ -1,0 +1,39 @@
+# Run database migrations against your production (or staging) Postgres.
+# No local machine needed — uses GitHub Actions + a repo secret.
+#
+# Setup (once):
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#   Name:  DATABASE_URL
+#   Value: postgresql://...  (same connection string as Vercel Postgres / Neon)
+#
+# Run:
+#   Actions tab → "Prisma migrate deploy" → Run workflow
+
+name: Prisma migrate deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'prisma/migrations/**'
+      - 'prisma/schema.prisma'
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

@@ -32,8 +32,30 @@ Set environment variables in `.env.local` (loaded by `vercel dev`):
 | --------------------- | ---------------------------------------------------------- |
 | `OPENAI_API_KEY`      | Your OpenAI secret key                                     |
 | `OPENAI_WORKFLOW_ID`  | Optional `wf_…` id for **trace metadata** only (see above) |
+| `DATABASE_URL`        | Optional **Postgres** URL for admin portal, saved settings, and dialogue logs |
+| `GUARDRAILS_OPENAI_API_KEY` | Optional; use a real **OpenAI** key when the chat LLM uses a non-OpenAI compatible API (jailbreak guardrails) |
+| `GUARDRAIL_MODEL`     | Optional; model name for jailbreak guardrail (default `gpt-4o-mini` on OpenAI) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional; Google sign-in for admin |
+| `ADMIN_PUBLIC_URL`    | Optional; canonical site URL for OAuth redirects (e.g. `https://your-app.vercel.app`) |
 
 The chat endpoint is `http://localhost:3000/api/chat` (port may differ; follow the CLI output).
+
+### Management portal (`/admin/`)
+
+After you set **`DATABASE_URL`**, run migrations against that database:
+
+```bash
+npx prisma migrate deploy
+```
+
+Open **`https://YOUR-DEPLOYMENT/admin/`** (or `/admin/index.html`). Create the **first admin** when the DB has no users, then sign in. You can:
+
+- **Customize** widget colors, radii, shadows, fonts (applied via `/api/public/widget-config` + CSS variables on the widget).
+- **AI & API** — OpenAI-compatible base URL, API key, and per-agent model names (DeepSeek, Grok, Kimi, Gemini compat, etc.).
+- **Prompts** — welcome message, classification text, Sarah intro/tone, full information-agent prompt.
+- **Dialogues** — stored turns when the widget sends `conversationId` (auto-generated per browser session).
+
+Chat still works **without** `DATABASE_URL` using `OPENAI_API_KEY` and built-in defaults; the portal and DB-backed settings are optional.
 
 **Vercel:** The widget must call **`https://YOUR-PROJECT.vercel.app/api/chat`** (POST), not the site root `/`. The widget auto-fixes a root-only URL (e.g. `https://…vercel.app/`) to `/api/chat`. The deployment root `/` is static HTML and does not handle CORS for API calls.
 
@@ -126,7 +148,11 @@ If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`i
 | ---------------------- | ------------------------------------------------- |
 | `api/chat.ts`              | Vercel function: POST `/api/chat`, CORS, workflow |
 | `api/workflow/agent.ts`    | `runWorkflow`, `runWorkflowStreaming`, agents      |
+| `api/public/widget-config.ts` | GET public theme + welcome (CORS `*`)        |
+| `api/admin/*`          | Authenticated admin JSON API                       |
 | `public/chat-widget.js`| Shopify-facing chat UI (no npm deps)               |
+| `public/admin/`        | Admin SPA (static)                                 |
+| `prisma/`              | Postgres schema & migrations                       |
 | `vercel.json`          | Node build for the API route                      |
 
 ## API contract
@@ -140,7 +166,9 @@ If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`i
     { "role": "user", "content": "Hi" },
     { "role": "assistant", "content": "Hello!" }
   ],
-  "stream": true
+  "stream": true,
+  "timezone": "America/New_York",
+  "conversationId": "optional-client-uuid-for-server-logs"
 }
 ```
 

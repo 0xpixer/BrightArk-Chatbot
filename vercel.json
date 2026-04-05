@@ -1,8 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/admin", "destination": "/admin/index.html" },
+    { "source": "/admin/", "destination": "/admin/index.html" }
+  ],
   "functions": {
     "api/chat.ts": {
       "maxDuration": 60
+    },
+    "api/admin/**/*.ts": {
+      "maxDuration": 30
+    },
+    "api/auth/**/*.ts": {
+      "maxDuration": 30
     }
   }
 }

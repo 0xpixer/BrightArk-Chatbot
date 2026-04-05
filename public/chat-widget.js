@@ -1,9 +1,7 @@
 (function () {
   'use strict';
 
-  var PRIMARY = '#E06429';
-  var ACCENT = '#000000';
-  var WELCOME =
+  var FALLBACK_WELCOME =
     "Hi! I'm the BrightArk Digital Expert Sarah. How can I help you today?";
 
   function getConfig() {
@@ -28,6 +26,42 @@
       return trimmed;
     } catch (e) {
       return trimmed;
+    }
+  }
+
+  function resolveWidgetConfigUrl(endpoint) {
+    var chatUrl = resolveChatApiUrl(endpoint);
+    try {
+      var u = new URL(chatUrl);
+      u.pathname = '/api/public/widget-config';
+      u.search = '';
+      u.hash = '';
+      return u.toString();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function applyThemeVars(node, cssVars) {
+    if (!node || !cssVars || typeof cssVars !== 'object') return;
+    for (var k in cssVars) {
+      if (Object.prototype.hasOwnProperty.call(cssVars, k)) {
+        node.style.setProperty(k, String(cssVars[k]));
+      }
+    }
+  }
+
+  function getConversationId() {
+    var key = 'brightark_conversation_id';
+    try {
+      var id = sessionStorage.getItem(key);
+      if (!id && typeof crypto !== 'undefined' && crypto.randomUUID) {
+        id = crypto.randomUUID();
+        sessionStorage.setItem(key, id);
+      }
+      return id || undefined;
+    } catch (e) {
+      return undefined;
     }
   }
 
@@ -157,55 +191,65 @@
     var s = document.createElement('style');
     s.id = 'brightark-chat-widget-styles';
     s.textContent =
-      '#brightark-chat-root{position:fixed;z-index:2147483646;font-family:system-ui,-apple-system,sans-serif;box-sizing:border-box}' +
+      '#brightark-chat-root{position:fixed;z-index:2147483646;font-family:var(--ba-font,system-ui,-apple-system,sans-serif);font-size:var(--ba-font-size,14px);box-sizing:border-box}' +
       '#brightark-chat-root *,#brightark-chat-root *::before,#brightark-chat-root *::after{box-sizing:border-box}' +
-      '#brightark-chat-bubble{width:56px;height:56px;border-radius:35%;' +
-      PRIMARY +
-      ';color:#fff;border:none;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:26px;display:flex;align-items:center;justify-content:center;position:fixed;right:20px;bottom:20px;transition:transform .15s ease}' +
+      '#brightark-chat-bubble{width:56px;height:56px;border-radius:35%;background:var(--ba-primary,#E06429);color:#fff;border:none;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:26px;display:flex;align-items:center;justify-content:center;position:fixed;right:20px;bottom:20px;transition:transform .15s ease}' +
       '#brightark-chat-bubble:hover{transform:scale(1.05)}' +
-      '#brightark-chat-panel{position:fixed;right:20px;bottom:88px;width:340px;max-width:calc(100vw - 40px);height:480px;max-height:calc(100vh - 120px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.18);display:none;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.06)}' +
+      '#brightark-chat-panel{position:fixed;right:20px;bottom:88px;width:340px;max-width:calc(100vw - 40px);height:480px;max-height:calc(100vh - 120px);background:var(--ba-panel-bg,#fff);border-radius:var(--ba-panel-radius,12px);box-shadow:var(--ba-panel-shadow,0 8px 32px rgba(0,0,0,.18));display:none;flex-direction:column;overflow:hidden;border:var(--ba-border-width,1px) solid rgba(0,0,0,.06)}' +
       '#brightark-chat-panel.open{display:flex}' +
-      '#brightark-chat-header{background:' +
-      PRIMARY +
-      ';color:#fff;padding:14px 16px;font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:space-between}' +
-      '#brightark-chat-close{background:transparent;border:none;color:#fff;cursor:pointer;font-size:22px;line-height:1;padding:0 4px;opacity:.85}' +
+      '#brightark-chat-header{background:var(--ba-header-bg,var(--ba-primary,#E06429));color:var(--ba-header-text,#fff);padding:14px 16px;font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:space-between}' +
+      '#brightark-chat-close{background:transparent;border:none;color:inherit;cursor:pointer;font-size:22px;line-height:1;padding:0 4px;opacity:.85}' +
       '#brightark-chat-close:hover{opacity:1}' +
-      '#brightark-chat-messages{flex:1;overflow-y:auto;padding:12px;background:#f6f7f9}' +
+      '#brightark-chat-messages{flex:1;overflow-y:auto;padding:12px;background:var(--ba-messages-bg,#f6f7f9)}' +
       '.brightark-msg{margin-bottom:10px;display:flex;flex-direction:column;max-width:85%}' +
       '.brightark-msg.user{align-self:flex-end}' +
       '.brightark-msg.bot{align-self:flex-start}' +
-      '.brightark-msg-inner{padding:10px 12px;border-radius:12px;font-size:14px;line-height:1.45;word-break:break-word}' +
-      '.brightark-msg.user .brightark-msg-inner{background:' +
-      PRIMARY +
-      ';color:#fff;border-bottom-right-radius:4px}' +
-      '.brightark-msg.bot .brightark-msg-inner{background:#fff;color:#222;border:1px solid #e5e7eb;border-bottom-left-radius:4px}' +
+      '.brightark-msg-inner{padding:10px 12px;border-radius:var(--ba-bubble-radius,12px);font-size:var(--ba-font-size,14px);line-height:1.45;word-break:break-word;box-shadow:var(--ba-bubble-shadow,none)}' +
+      '.brightark-msg.user .brightark-msg-inner{background:var(--ba-user-bg,var(--ba-primary,#E06429));color:var(--ba-user-text,#fff);border-bottom-right-radius:var(--ba-bubble-corner,4px)}' +
+      '.brightark-msg.bot .brightark-msg-inner{background:var(--ba-bot-bg,#fff);color:var(--ba-bot-text,#222);border:var(--ba-border-width,1px) solid var(--ba-bot-border,#e5e7eb);border-bottom-left-radius:var(--ba-bubble-corner,4px)}' +
       '.brightark-msg.bot .brightark-msg-inner a{color:#2563eb;text-decoration:underline;word-break:break-all}' +
       '.brightark-msg.bot .brightark-msg-inner a:hover{color:#1d4ed8}' +
       '.brightark-thinking{max-width:85%;margin-bottom:10px;display:flex}' +
-      '.brightark-thinking-bubble{background:#fff;border:1px solid #e5e7eb;border-radius:12px;border-bottom-left-radius:4px;padding:12px 16px;display:inline-flex}' +
+      '.brightark-thinking-bubble{background:var(--ba-bot-bg,#fff);border:var(--ba-border-width,1px) solid var(--ba-bot-border,#e5e7eb);border-radius:var(--ba-bubble-radius,12px);border-bottom-left-radius:var(--ba-bubble-corner,4px);padding:12px 16px;display:inline-flex}' +
       '.brightark-thinking-dots{display:flex;gap:6px;align-items:center;height:8px}' +
       '.brightark-thinking-dot{width:7px;height:7px;border-radius:50%;background:#9ca3af;animation:brightark-thinking-bounce 1.15s ease-in-out infinite both}' +
       '.brightark-thinking-dot:nth-child(2){animation-delay:.2s}' +
       '.brightark-thinking-dot:nth-child(3){animation-delay:.4s}' +
       '@keyframes brightark-thinking-bounce{0%,60%,100%{transform:translateY(0);opacity:.35}30%{transform:translateY(-5px);opacity:1}}' +
-      '#brightark-chat-input-row{display:flex;gap:8px;padding:10px 12px;border-top:1px solid #e5e7eb;background:#fff}' +
-      '#brightark-chat-input{flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:14px;outline:none}' +
-      '#brightark-chat-input:focus{border-color:' +
-      ACCENT +
-      ';box-shadow:0 0 0 2px rgba(232,232,232,.2)}' +
-      '#brightark-chat-send{background:' +
-      ACCENT +
-      ';color:#fff;border:none;border-radius:8px;padding:0 16px;font-weight:600;cursor:pointer;font-size:14px}' +
+      '#brightark-chat-input-row{display:flex;gap:8px;padding:10px 12px;border-top:var(--ba-border-width,1px) solid var(--ba-bot-border,#e5e7eb);background:var(--ba-panel-bg,#fff)}' +
+      '#brightark-chat-input{flex:1;border:var(--ba-border-width,1px) solid var(--ba-input-border,#d1d5db);border-radius:8px;padding:10px 12px;font-size:var(--ba-font-size,14px);outline:none}' +
+      '#brightark-chat-input:focus{border-color:var(--ba-accent,#000);box-shadow:0 0 0 2px rgba(74,158,255,.2)}' +
+      '#brightark-chat-send{background:var(--ba-accent,#000);color:#fff;border:none;border-radius:8px;padding:0 16px;font-weight:600;cursor:pointer;font-size:var(--ba-font-size,14px)}' +
       '#brightark-chat-send:disabled{opacity:.5;cursor:not-allowed}' +
       '@media (max-width:399px){#brightark-chat-panel{width:95vw;right:2.5vw;left:2.5vw;max-width:none;height:min(480px,70vh)}#brightark-chat-bubble{right:12px;bottom:12px}}';
     document.head.appendChild(s);
   }
 
-  function init() {
+  async function init() {
     var config = getConfig();
     if (!config) return;
 
     var apiUrl = resolveChatApiUrl(config.apiEndpoint);
+    var cfgUrl = resolveWidgetConfigUrl(config.apiEndpoint);
+    var welcomeText = FALLBACK_WELCOME;
+    var remoteCssVars = null;
+
+    if (cfgUrl) {
+      try {
+        var res = await fetch(cfgUrl);
+        if (res.ok) {
+          var remote = await res.json();
+          if (remote && typeof remote.welcomeMessage === 'string' && remote.welcomeMessage.trim()) {
+            welcomeText = remote.welcomeMessage.trim();
+          }
+          if (remote && remote.cssVars && typeof remote.cssVars === 'object') {
+            remoteCssVars = remote.cssVars;
+          }
+        }
+      } catch (e) {
+        /* keep fallbacks */
+      }
+    }
 
     injectStyles();
 
@@ -256,6 +300,9 @@
     root.appendChild(panel);
     root.appendChild(bubble);
     document.body.appendChild(root);
+    if (remoteCssVars) {
+      applyThemeVars(root, remoteCssVars);
+    }
 
     function scrollToBottom() {
       messages.scrollTop = messages.scrollHeight;
@@ -304,7 +351,7 @@
       bubble.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open && !welcomeShown) {
         welcomeShown = true;
-        appendMessage('bot', WELCOME);
+        appendMessage('bot', welcomeText);
       }
       if (open) {
         setTimeout(function () {
@@ -371,6 +418,7 @@
               return undefined;
             }
           })(),
+          conversationId: getConversationId(),
         }),
       })
         .then(function (r) {
@@ -479,9 +527,14 @@
     });
   }
 
+  function boot() {
+    init().catch(function (err) {
+      console.warn('[BrightArk Chat] init failed', err);
+    });
+  }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', boot);
   } else {
-    init();
+    boot();
   }
 })();

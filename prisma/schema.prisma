@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  username     String?
+  passwordHash String?
+  googleId     String?   @unique
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+/// Singleton row id = 1
+model SiteSettings {
+  id     Int @id @default(1)
+
+  widgetTheme Json @default("{}")
+
+  llmProviderLabel       String  @default("openai")
+  llmBaseUrl             String?
+  llmApiKey              String?
+  llmClassificationModel String  @default("gpt-4.1-nano")
+  llmSarahModel          String  @default("gpt-5-nano")
+  llmInformationModel    String  @default("gpt-4.1-nano")
+
+  promptClassification   String @db.Text
+  promptSarahIntro       String @db.Text
+  promptSarahTone        String @db.Text
+  promptInformationAgent String @db.Text
+  welcomeMessage         String @db.Text
+
+  updatedAt DateTime @updatedAt
+}
+
+model ChatConversation {
+  id        String        @id @default(cuid())
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String           @db.Text
+  createdAt      DateTime         @default(now())
+}
