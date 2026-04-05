@@ -2,7 +2,7 @@
 
 Production-oriented **Vercel serverless API** that runs an **OpenAI Agents** multi-agent workflow for BrightArk’s Shopify storefront, plus a **self-contained chat widget** you can load from your theme.
 
-The API accepts a shopper message and optional `conversationHistory`, runs `runWorkflow` in `api/workflow/agent.ts` (classification → return / retention / information agents), and returns a plain-text `reply` with an updated history for the next request.
+The API accepts a shopper message and optional `conversationHistory`, runs `runWorkflow` in `lib/workflow/agent.ts` (classification → Sarah / information agents), and returns a plain-text `reply` with an updated history for the next request.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ npm install
 npm run build
 ```
 
-`npm run build` type-checks and compiles `api/` (including `api/workflow/`) with TypeScript.
+`npm run build` type-checks and compiles `api/` and `lib/` with TypeScript.
 
 Run the API locally with the [Vercel CLI](https://vercel.com/docs/cli):
 
@@ -76,6 +76,8 @@ Chat still works **without** `DATABASE_URL` using `OPENAI_API_KEY` and built-in 
 
 4. Deploy. Your API URL will look like `https://your-project.vercel.app/api/chat`.
 
+**Vercel Hobby (12 serverless functions):** This repo keeps only **four** API entry files under `api/` (`chat.ts` plus three catch-all routes for `admin`, `auth`, and `public`). Shared code lives in `lib/`, which does **not** count toward the limit.
+
 ### CORS
 
 `/api/chat` sends `Access-Control-Allow-Origin: *`, allows `POST` and `OPTIONS`, `Content-Type`, and `Access-Control-Max-Age: 86400` for preflight caching. Tighten this in production if you need an origin allowlist.
@@ -117,14 +119,14 @@ If the script lives in **Files** instead of theme assets, replace the last line 
 
 **Why answers don’t match Agent Builder**
 
-The chat API runs **`api/workflow/agent.ts`**: `@openai/agents` code (normally **pasted from** Agent Builder → **Code**). Your `wf_…` env var is **tracing only**, not a live link to the hosted workflow.  
+The chat API runs **`lib/workflow/agent.ts`**: `@openai/agents` code (normally **pasted from** Agent Builder → **Code**). Your `wf_…` env var is **tracing only**, not a live link to the hosted workflow.  
 Your **Agent Builder** canvas is a **different** artifact: a published workflow (`wf_…`) on OpenAI’s side. Putting a `wf_` id in **trace metadata only** does **not** pull in Builder prompts, tools, or training—you must **deploy the same logic** in one of the ways below.
 
 ### Option A — Use Builder-generated code (keeps `chat-widget.js` + `/api/chat`)
 
 1. Open [Agent Builder](https://platform.openai.com/agent-builder), select your customer-service workflow.
 2. Click **Code** (top) and copy or download the **Agents SDK** output.
-3. Replace or merge into **`api/workflow/agent.ts`**, and keep an exported:
+3. Replace or merge into **`lib/workflow/agent.ts`**, and keep an exported:
 
    `runWorkflow({ input_as_text, conversationHistory? })`
 
@@ -140,16 +142,18 @@ Use [ChatKit](https://developers.openai.com/api/docs/guides/chatkit): your backe
 
 ### Editing the placeholder agents only
 
-If you stay on the **sample** agents in `api/workflow/agent.ts`, change the **`instructions`** (and `tools`) there—those strings are what the API actually uses today.
+If you stay on the **sample** agents in `lib/workflow/agent.ts`, change the **`instructions`** (and `tools`) there—those strings are what the API actually uses today.
 
 ## Project layout
 
 | Path                   | Role                                              |
 | ---------------------- | ------------------------------------------------- |
-| `api/chat.ts`              | Vercel function: POST `/api/chat`, CORS, workflow |
-| `api/workflow/agent.ts`    | `runWorkflow`, `runWorkflowStreaming`, agents      |
-| `api/public/widget-config.ts` | GET public theme + welcome (CORS `*`)        |
-| `api/admin/*`          | Authenticated admin JSON API                       |
+| `api/chat.ts` | Vercel function: POST `/api/chat`, CORS, workflow |
+| `lib/workflow/agent.ts` | `runWorkflow`, `runWorkflowStreaming`, agents |
+| `lib/server/*` | DB, auth, admin/auth/public dispatchers (not separate functions) |
+| `api/admin/[...slug].ts` | All `/api/admin/*` routes (Hobby: 1 function) |
+| `api/auth/[...slug].ts` | `/api/auth/google`, `google-callback` |
+| `api/public/[...slug].ts` | `/api/public/widget-config` |
 | `public/chat-widget.js`| Shopify-facing chat UI (no npm deps)               |
 | `public/admin/`        | Admin SPA (static)                                 |
 | `prisma/`              | Postgres schema & migrations                       |

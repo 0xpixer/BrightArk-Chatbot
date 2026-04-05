@@ -8,11 +8,14 @@
     "api/chat.ts": {
       "maxDuration": 60
     },
-    "api/admin/**/*.ts": {
+    "api/admin/[...slug].ts": {
       "maxDuration": 30
     },
-    "api/auth/**/*.ts": {
+    "api/auth/[...slug].ts": {
       "maxDuration": 30
+    },
+    "api/public/[...slug].ts": {
+      "maxDuration": 10
     }
   }
 }

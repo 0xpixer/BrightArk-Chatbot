@@ -3,9 +3,9 @@ import {
   runWorkflow,
   runWorkflowStreaming,
   type ConversationTurn,
-} from './workflow/agent.js';
-import { loadSiteSettingsRow, buildWorkflowOptionsFromDb } from './lib/siteSettings.js';
-import { persistChatTurn } from './lib/dialogueStore.js';
+} from '../lib/workflow/agent.js';
+import { loadSiteSettingsRow, buildWorkflowOptionsFromDb } from '../lib/server/siteSettings.js';
+import { persistChatTurn } from '../lib/server/dialogueStore.js';
 
 type ChatBody = {
   message?: string;
