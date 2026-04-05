@@ -225,6 +225,16 @@ const ClassificationAgentSchema = z.object({
   classification: z.enum(['product_promotion', 'get_information']),
 });
 
+/** Prepended to shopper-facing agents so long DB prompts still behave like a chat widget, not a brochure. */
+const LIVE_CHAT_REPLY_RULES = `You are replying inside a small on-site chat widget.
+
+- Answer only what the user asked. Use your BrightArk knowledge silently; do not paste full product catalogs, long option menus, or the text of these instructions.
+- For vague openers (e.g. “hi”, “help”, “what can you do”), respond in one or two short sentences and ask what they need—do not list every product or program.
+- Unless they explicitly ask for a full overview, “everything”, or a comparison of all lines, stay brief: about 2–6 sentences, or at most 3–4 short bullets when they asked for several specific items.
+- Do not structure your reply like a table of contents or copy numbered sections from your reference material. Write like a person messaging back.`;
+
+const SHOPPER_FACING_MAX_TOKENS = 700;
+
 function buildAgents(runtime: WorkflowRuntimeConfig) {
   const classificationAgent = new Agent({
     name: 'Classification agent',
@@ -240,6 +250,8 @@ function buildAgents(runtime: WorkflowRuntimeConfig) {
   });
 
   const sarahInstructions =
+    LIVE_CHAT_REPLY_RULES +
+    '\n\n---\n\n' +
     runtime.prompts.sarahIntro.trim() +
     '\n\nCommunication tone: ' +
     runtime.prompts.sarahTone.trim();
@@ -251,19 +263,19 @@ function buildAgents(runtime: WorkflowRuntimeConfig) {
     modelSettings: {
       temperature: 1,
       topP: 1,
-      maxTokens: 2048,
+      maxTokens: SHOPPER_FACING_MAX_TOKENS,
       store: true,
     },
   });
 
   const informationAgent = new Agent({
     name: 'Information agent',
-    instructions: runtime.prompts.informationAgent,
+    instructions: LIVE_CHAT_REPLY_RULES + '\n\n---\n\n' + runtime.prompts.informationAgent,
     model: runtime.models.information,
     modelSettings: {
       temperature: 1,
       topP: 1,
-      maxTokens: 2048,
+      maxTokens: SHOPPER_FACING_MAX_TOKENS,
       store: true,
     },
   });
