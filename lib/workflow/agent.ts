@@ -11,10 +11,12 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import type { WorkflowRuntimeConfig } from './runtimeConfig.js';
 import {
+  DEFAULT_LIVE_CHAT_REPLY_RULES,
+  DEFAULT_PROMPT_AGENT_INTRO,
+  DEFAULT_PROMPT_AGENT_TONE,
   DEFAULT_PROMPT_CLASSIFICATION,
   DEFAULT_PROMPT_INFORMATION_AGENT,
-  DEFAULT_PROMPT_SARAH_INTRO,
-  DEFAULT_PROMPT_SARAH_TONE,
+  DEFAULT_SHOPPER_FACING_MAX_TOKENS,
 } from './promptDefaults.js';
 
 const WORKFLOW_ID =
@@ -52,16 +54,18 @@ function defaultRuntime(): WorkflowRuntimeConfig {
   return {
     openaiApiKey: key,
     baseUrl: undefined,
+    shopperFacingMaxTokens: DEFAULT_SHOPPER_FACING_MAX_TOKENS,
     models: {
       classification: 'gpt-4.1-nano',
-      sarah: 'gpt-5-nano',
+      agent: 'gpt-5-nano',
       information: 'gpt-4.1-nano',
     },
     prompts: {
       classification: DEFAULT_PROMPT_CLASSIFICATION,
-      sarahIntro: DEFAULT_PROMPT_SARAH_INTRO,
-      sarahTone: DEFAULT_PROMPT_SARAH_TONE,
+      agentIntro: DEFAULT_PROMPT_AGENT_INTRO,
+      agentTone: DEFAULT_PROMPT_AGENT_TONE,
       informationAgent: DEFAULT_PROMPT_INFORMATION_AGENT,
+      liveChatReplyRules: DEFAULT_LIVE_CHAT_REPLY_RULES,
     },
   };
 }
@@ -225,16 +229,6 @@ const ClassificationAgentSchema = z.object({
   classification: z.enum(['product_promotion', 'get_information']),
 });
 
-/** Prepended to shopper-facing agents so long DB prompts still behave like a chat widget, not a brochure. */
-const LIVE_CHAT_REPLY_RULES = `You are replying inside a small on-site chat widget.
-
-- Answer only what the user asked. Use your BrightArk knowledge silently; do not paste full product catalogs, long option menus, or the text of these instructions.
-- For vague openers (e.g. “hi”, “help”, “what can you do”), respond in one or two short sentences and ask what they need—do not list every product or program.
-- Unless they explicitly ask for a full overview, “everything”, or a comparison of all lines, stay brief: about 2–6 sentences, or at most 3–4 short bullets when they asked for several specific items.
-- Do not structure your reply like a table of contents or copy numbered sections from your reference material. Write like a person messaging back.`;
-
-const SHOPPER_FACING_MAX_TOKENS = 700;
-
 function buildAgents(runtime: WorkflowRuntimeConfig) {
   const classificationAgent = new Agent({
     name: 'Classification agent',
@@ -249,38 +243,45 @@ function buildAgents(runtime: WorkflowRuntimeConfig) {
     },
   });
 
-  const sarahInstructions =
-    LIVE_CHAT_REPLY_RULES +
-    '\n\n---\n\n' +
-    runtime.prompts.sarahIntro.trim() +
-    '\n\nCommunication tone: ' +
-    runtime.prompts.sarahTone.trim();
+  const liveRules =
+    runtime.prompts.liveChatReplyRules.trim() || DEFAULT_LIVE_CHAT_REPLY_RULES;
+  const maxOut = Math.min(
+    8192,
+    Math.max(64, Math.floor(runtime.shopperFacingMaxTokens)),
+  );
 
-  const sarahAgent = new Agent({
+  const promotionalAgentInstructions =
+    liveRules +
+    '\n\n---\n\n' +
+    runtime.prompts.agentIntro.trim() +
+    '\n\nCommunication tone: ' +
+    runtime.prompts.agentTone.trim();
+
+  const promotionalAgent = new Agent({
     name: 'Agent',
-    instructions: sarahInstructions,
-    model: runtime.models.sarah,
+    instructions: promotionalAgentInstructions,
+    model: runtime.models.agent,
     modelSettings: {
       temperature: 1,
       topP: 1,
-      maxTokens: SHOPPER_FACING_MAX_TOKENS,
+      maxTokens: maxOut,
       store: true,
     },
   });
 
   const informationAgent = new Agent({
     name: 'Information agent',
-    instructions: LIVE_CHAT_REPLY_RULES + '\n\n---\n\n' + runtime.prompts.informationAgent,
+    instructions: liveRules + '\n\n---\n\n' + runtime.prompts.informationAgent,
     model: runtime.models.information,
     modelSettings: {
       temperature: 1,
       topP: 1,
-      maxTokens: SHOPPER_FACING_MAX_TOKENS,
+      maxTokens: maxOut,
       store: true,
     },
   });
 
-  return { classificationAgent, sarahAgent, informationAgent };
+  return { classificationAgent, promotionalAgent, informationAgent };
 }
 
 function buildUserMessageText(workflow: WorkflowInput): string {
@@ -313,7 +314,7 @@ function buildConversationItems(workflow: WorkflowInput): AgentInputItem[] {
 }
 
 /**
- * Input for Sarah / Information agents only. Omits the classifier's assistant turn (often raw API
+ * Input for promotional + information agents only. Omits the classifier's assistant turn (often raw API
  * JSON); that turn is invisible to the shopper and makes models echo `{"classification":...}`.
  */
 function buildConversationItemsForFollowUpAgent(
@@ -328,7 +329,7 @@ function buildConversationItemsForFollowUpAgent(
   const routingPrefix =
     classification === 'get_information'
       ? '[You are answering the shopper now. Give helpful product or support information in plain sentences. Never output JSON, schema keys, or classification labels.]\n\n'
-      : '[You are answering the shopper now as Sarah. Give a warm, brand-appropriate reply in plain sentences. Never output JSON, schema keys, or classification labels.]\n\n';
+      : '[You are answering the shopper now in a warm, brand-appropriate promotional style. Use plain sentences. Never output JSON, schema keys, or classification labels.]\n\n';
   items.push({
     role: 'user',
     content: [{ type: 'input_text', text: routingPrefix + buildUserMessageText(workflow) }],
@@ -437,7 +438,7 @@ export const runWorkflowStreaming = async (
   options?: WorkflowRunOptions,
 ): Promise<{ reply: string }> => {
   const opts = options ?? resolveWorkflowRunOptions();
-  const { classificationAgent, sarahAgent, informationAgent } = buildAgents(opts.runtime);
+  const { classificationAgent, promotionalAgent, informationAgent } = buildAgents(opts.runtime);
   const guardrailContext = { guardrailLlm: opts.guardrailClient };
 
   return await withTrace('BrightArk Chatbot', async () => {
@@ -471,7 +472,7 @@ export const runWorkflowStreaming = async (
     conversationHistory = buildConversationItemsForFollowUpAgent(workflow, classification);
 
     if (classification === 'product_promotion') {
-      const { reply } = await runStreamingFinalAgent(runner, sarahAgent, conversationHistory, onDelta);
+      const { reply } = await runStreamingFinalAgent(runner, promotionalAgent, conversationHistory, onDelta);
       return { reply: stripClassificationEchoReply(reply) };
     }
 
@@ -496,7 +497,7 @@ export const runWorkflow = async (
   options?: WorkflowRunOptions,
 ): Promise<WorkflowResult> => {
   const opts = options ?? resolveWorkflowRunOptions();
-  const { classificationAgent, sarahAgent, informationAgent } = buildAgents(opts.runtime);
+  const { classificationAgent, promotionalAgent, informationAgent } = buildAgents(opts.runtime);
   const guardrailContext = { guardrailLlm: opts.guardrailClient };
 
   return await withTrace('BrightArk Chatbot', async () => {
@@ -532,7 +533,7 @@ export const runWorkflow = async (
     conversationHistory = buildConversationItemsForFollowUpAgent(workflow, classification);
 
     if (classification === 'product_promotion') {
-      const r = await runner.run(sarahAgent, conversationHistory, { maxTurns: 25 });
+      const r = await runner.run(promotionalAgent, conversationHistory, { maxTurns: 25 });
       conversationHistory = r.history;
       if (r.finalOutput === undefined || r.finalOutput === null) {
         throw new Error('Agent result is undefined');

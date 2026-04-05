@@ -267,12 +267,14 @@ type PatchBody = {
   llmApiKey?: string;
   clearLlmApiKey?: boolean;
   llmClassificationModel?: string;
-  llmSarahModel?: string;
+  llmAgentModel?: string;
   llmInformationModel?: string;
   promptClassification?: string;
-  promptSarahIntro?: string;
-  promptSarahTone?: string;
+  promptAgentIntro?: string;
+  promptAgentTone?: string;
   promptInformationAgent?: string;
+  promptLiveChatRules?: string;
+  shopperFacingMaxTokens?: number;
   welcomeMessage?: string;
 };
 
@@ -341,8 +343,8 @@ async function handleSettings(req: VercelRequest, res: VercelResponse): Promise<
   if (typeof body.llmClassificationModel === 'string' && body.llmClassificationModel.trim()) {
     data.llmClassificationModel = body.llmClassificationModel.trim();
   }
-  if (typeof body.llmSarahModel === 'string' && body.llmSarahModel.trim()) {
-    data.llmSarahModel = body.llmSarahModel.trim();
+  if (typeof body.llmAgentModel === 'string' && body.llmAgentModel.trim()) {
+    data.llmAgentModel = body.llmAgentModel.trim();
   }
   if (typeof body.llmInformationModel === 'string' && body.llmInformationModel.trim()) {
     data.llmInformationModel = body.llmInformationModel.trim();
@@ -350,14 +352,23 @@ async function handleSettings(req: VercelRequest, res: VercelResponse): Promise<
   if (typeof body.promptClassification === 'string') {
     data.promptClassification = body.promptClassification;
   }
-  if (typeof body.promptSarahIntro === 'string') {
-    data.promptSarahIntro = body.promptSarahIntro;
+  if (typeof body.promptAgentIntro === 'string') {
+    data.promptAgentIntro = body.promptAgentIntro;
   }
-  if (typeof body.promptSarahTone === 'string') {
-    data.promptSarahTone = body.promptSarahTone;
+  if (typeof body.promptAgentTone === 'string') {
+    data.promptAgentTone = body.promptAgentTone;
   }
   if (typeof body.promptInformationAgent === 'string') {
     data.promptInformationAgent = body.promptInformationAgent;
+  }
+  if (typeof body.promptLiveChatRules === 'string') {
+    data.promptLiveChatRules = body.promptLiveChatRules;
+  }
+  if (body.shopperFacingMaxTokens !== undefined) {
+    const n = Number(body.shopperFacingMaxTokens);
+    if (Number.isFinite(n)) {
+      data.shopperFacingMaxTokens = Math.min(8192, Math.max(64, Math.floor(n)));
+    }
   }
   if (typeof body.welcomeMessage === 'string') {
     data.welcomeMessage = body.welcomeMessage;

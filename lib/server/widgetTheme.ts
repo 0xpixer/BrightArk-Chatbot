@@ -4,6 +4,8 @@
  */
 export type WidgetTheme = {
   primary?: string;
+  /** Floating launcher button (#brightark-chat-bubble) background; defaults to primary if unset. */
+  launcherBubbleBg?: string;
   accent?: string;
   panelBg?: string;
   messagesBg?: string;
@@ -55,8 +57,13 @@ export function mergeWidgetTheme(raw: unknown): WidgetTheme {
 
 export function themeToCssVars(t: WidgetTheme): Record<string, string> {
   const m = mergeWidgetTheme(t);
+  const primary = m.primary ?? DEFAULT_WIDGET_THEME.primary!;
+  const launcher =
+    (m.launcherBubbleBg && String(m.launcherBubbleBg).trim()) ||
+    primary;
   return {
-    '--ba-primary': m.primary ?? DEFAULT_WIDGET_THEME.primary!,
+    '--ba-primary': primary,
+    '--ba-launcher-bubble-bg': launcher,
     '--ba-accent': m.accent ?? DEFAULT_WIDGET_THEME.accent!,
     '--ba-panel-bg': m.panelBg ?? DEFAULT_WIDGET_THEME.panelBg!,
     '--ba-messages-bg': m.messagesBg ?? DEFAULT_WIDGET_THEME.messagesBg!,

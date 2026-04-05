@@ -222,6 +222,9 @@
         '<div><label>Accent</label><input name="accent" type="text" value="' +
         esc(t.accent) +
         '" /></div></div>' +
+        '<label>Launcher button background (floating chat bubble)</label><input name="launcherBubbleBg" type="text" value="' +
+        esc(t.launcherBubbleBg) +
+        '" placeholder="defaults to Primary if empty" />' +
         '<div class="row2">' +
         '<div><label>Panel background</label><input name="panelBg" type="text" value="' +
         esc(t.panelBg) +
@@ -339,8 +342,8 @@
         '<label>Classification model</label><input name="llmClassificationModel" type="text" value="' +
         esc(s.llmClassificationModel) +
         '" />' +
-        '<label>Sarah (promotion) model</label><input name="llmSarahModel" type="text" value="' +
-        esc(s.llmSarahModel) +
+        '<label>Agent model (promotional path)</label><input name="llmAgentModel" type="text" value="' +
+        esc(s.llmAgentModel) +
         '" />' +
         '<label>Information agent model</label><input name="llmInformationModel" type="text" value="' +
         esc(s.llmInformationModel) +
@@ -363,7 +366,7 @@
           llmProviderLabel: fd.get('preset'),
           llmBaseUrl: fd.get('llmBaseUrl') || null,
           llmClassificationModel: fd.get('llmClassificationModel'),
-          llmSarahModel: fd.get('llmSarahModel'),
+          llmAgentModel: fd.get('llmAgentModel'),
           llmInformationModel: fd.get('llmInformationModel'),
         };
         var key = fd.get('llmApiKey');
@@ -390,15 +393,21 @@
         '<label>Classification instructions</label><textarea name="promptClassification" rows="8">' +
         esc(s.promptClassification) +
         '</textarea>' +
-        '<label>Sarah — intro</label><textarea name="promptSarahIntro" rows="4">' +
-        esc(s.promptSarahIntro) +
+        '<label>Agent — intro (promotional path)</label><textarea name="promptAgentIntro" rows="4">' +
+        esc(s.promptAgentIntro) +
         '</textarea>' +
-        '<label>Sarah — tone</label><textarea name="promptSarahTone" rows="3">' +
-        esc(s.promptSarahTone) +
+        '<label>Agent — tone</label><textarea name="promptAgentTone" rows="3">' +
+        esc(s.promptAgentTone) +
         '</textarea>' +
         '<label>Information agent (full system prompt)</label><textarea name="promptInformationAgent" rows="16">' +
         esc(s.promptInformationAgent) +
         '</textarea>' +
+        '<label>Live chat widget rules (prepended to agent + information)</label><p class="hint" style="margin:0 0 8px;font-size:13px;opacity:0.85">Keeps replies short and conversational. If the database value is empty, the default from <code>lib/prompts/liveChatReplyRules.ts</code> is used. Delete all text and save to reset to that default.</p><textarea name="promptLiveChatRules" rows="8">' +
+        esc(s.promptLiveChatRules) +
+        '</textarea>' +
+        '<label>Max reply tokens (agent + information only)</label><input name="shopperFacingMaxTokens" type="number" min="64" max="8192" step="1" value="' +
+        esc(String(s.shopperFacingMaxTokens)) +
+        '" />' +
         '<button class="btn" type="submit">Save prompts</button></form></div>';
       document.getElementById('pr-form').onsubmit = function (e) {
         e.preventDefault();
@@ -408,9 +417,11 @@
           body: {
             welcomeMessage: fd.get('welcomeMessage'),
             promptClassification: fd.get('promptClassification'),
-            promptSarahIntro: fd.get('promptSarahIntro'),
-            promptSarahTone: fd.get('promptSarahTone'),
+            promptAgentIntro: fd.get('promptAgentIntro'),
+            promptAgentTone: fd.get('promptAgentTone'),
             promptInformationAgent: fd.get('promptInformationAgent'),
+            promptLiveChatRules: fd.get('promptLiveChatRules'),
+            shopperFacingMaxTokens: Number(fd.get('shopperFacingMaxTokens')),
           },
         }).then(function (r) {
           var el = document.getElementById('pr-msg');

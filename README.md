@@ -2,7 +2,7 @@
 
 Production-oriented **Vercel serverless API** that runs an **OpenAI Agents** multi-agent workflow for BrightArk’s Shopify storefront, plus a **self-contained chat widget** you can load from your theme.
 
-The API accepts a shopper message and optional `conversationHistory`, runs `runWorkflow` in `lib/workflow/agent.ts` (classification → Sarah / information agents), and returns a plain-text `reply` with an updated history for the next request.
+The API accepts a shopper message and optional `conversationHistory`, runs `runWorkflow` in `lib/workflow/agent.ts` (classification → promotional agent / information agent), and returns a plain-text `reply` with an updated history for the next request.
 
 ## Prerequisites
 
@@ -59,7 +59,7 @@ Then sign in with that email and password. You can:
 
 - **Customize** widget colors, radii, shadows, fonts (applied via `/api/public/widget-config` + CSS variables on the widget).
 - **AI & API** — OpenAI-compatible base URL, API key, and per-agent model names (DeepSeek, Grok, Kimi, Gemini compat, etc.).
-- **Prompts** — welcome message, classification text, Sarah intro/tone, full information-agent prompt.
+- **Prompts** — welcome message, classification text, agent intro/tone (promotional path), full information-agent prompt, live-chat rules, token cap.
 - **Dialogues** — stored turns when the widget sends `conversationId` (auto-generated per browser session).
 
 Chat still works **without** `DATABASE_URL` using `OPENAI_API_KEY` and built-in defaults; the portal and DB-backed settings are optional.
