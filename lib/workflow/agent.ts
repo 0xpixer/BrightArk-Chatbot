@@ -300,7 +300,31 @@ function buildConversationItems(workflow: WorkflowInput): AgentInputItem[] {
   return items;
 }
 
-/** True if text is only the classifier JSON (models often echo this if it stays in history). */
+/**
+ * Input for Sarah / Information agents only. Omits the classifier's assistant turn (often raw API
+ * JSON); that turn is invisible to the shopper and makes models echo `{"classification":...}`.
+ */
+function buildConversationItemsForFollowUpAgent(
+  workflow: WorkflowInput,
+  classification: 'product_promotion' | 'get_information',
+): AgentInputItem[] {
+  const items: AgentInputItem[] = [];
+  for (const turn of workflow.conversationHistory ?? []) {
+    if (turn.role === 'user') items.push(user(turn.content));
+    else items.push(assistant(turn.content));
+  }
+  const routingPrefix =
+    classification === 'get_information'
+      ? '[You are answering the shopper now. Give helpful product or support information in plain sentences. Never output JSON, schema keys, or classification labels.]\n\n'
+      : '[You are answering the shopper now as Sarah. Give a warm, brand-appropriate reply in plain sentences. Never output JSON, schema keys, or classification labels.]\n\n';
+  items.push({
+    role: 'user',
+    content: [{ type: 'input_text', text: routingPrefix + buildUserMessageText(workflow) }],
+  });
+  return items;
+}
+
+/** True if text is only the classifier JSON (models sometimes still echo it). */
 function isClassificationOnlyPayload(text: string): boolean {
   try {
     const o = JSON.parse(text.trim()) as Record<string, unknown>;
@@ -315,52 +339,12 @@ function isClassificationOnlyPayload(text: string): boolean {
   }
 }
 
-function cloneAgentInputItems(history: AgentInputItem[]): AgentInputItem[] {
-  try {
-    return structuredClone(history) as AgentInputItem[];
-  } catch {
-    return JSON.parse(JSON.stringify(history)) as AgentInputItem[];
+function stripClassificationEchoReply(reply: string): string {
+  const t = reply.trim();
+  if (isClassificationOnlyPayload(t)) {
+    return "I couldn't generate a reply just now. Please try asking again in your own words.";
   }
-}
-
-/**
- * Replace the classifier's structured JSON assistant turn with a prose hint so Sarah / Information
- * models answer in natural language instead of repeating `{"classification":...}`.
- */
-function scrubClassificationAssistantEcho(
-  history: AgentInputItem[],
-  classification: 'product_promotion' | 'get_information',
-): AgentInputItem[] {
-  const hint =
-    classification === 'get_information'
-      ? '[Routing: the shopper needs factual product or support information. Answer in clear, natural sentences. Do not output JSON.]'
-      : '[Routing: the shopper wants warm brand conversation as Sarah. Answer in natural sentences. Do not output JSON.]';
-
-  const clone = cloneAgentInputItems(history);
-  for (let i = clone.length - 1; i >= 0; i--) {
-    const item = clone[i] as {
-      type?: string;
-      role?: string;
-      content?: unknown;
-    };
-    if (item.type !== 'message' || item.role !== 'assistant' || !Array.isArray(item.content)) {
-      continue;
-    }
-    let touched = false;
-    for (const part of item.content) {
-      const p = part as { type?: string; text?: string };
-      if (
-        p?.type === 'output_text' &&
-        typeof p.text === 'string' &&
-        isClassificationOnlyPayload(p.text)
-      ) {
-        p.text = hint;
-        touched = true;
-      }
-    }
-    if (touched) break;
-  }
-  return clone;
+  return reply;
 }
 
 function finalOutputToText(output: unknown): string {
@@ -414,8 +398,10 @@ async function runStreamingFinalAgent(
       typeof r2.finalOutput === 'string' && r2.finalOutput.trim() !== ''
         ? r2.finalOutput
         : finalOutputToText(r2.finalOutput);
+    reply = stripClassificationEchoReply(reply);
     return { reply, history: r2.history };
   }
+  reply = stripClassificationEchoReply(reply);
   return { reply, history: streamed.history };
 }
 
@@ -470,14 +456,11 @@ export const runWorkflowStreaming = async (
     }
 
     const classification = classificationResult.finalOutput.classification;
-    conversationHistory = scrubClassificationAssistantEcho(
-      classificationResult.history,
-      classification,
-    );
+    conversationHistory = buildConversationItemsForFollowUpAgent(workflow, classification);
 
     if (classification === 'product_promotion') {
       const { reply } = await runStreamingFinalAgent(runner, sarahAgent, conversationHistory, onDelta);
-      return { reply };
+      return { reply: stripClassificationEchoReply(reply) };
     }
 
     if (classification === 'get_information') {
@@ -487,7 +470,7 @@ export const runWorkflowStreaming = async (
         conversationHistory,
         onDelta,
       );
-      return { reply };
+      return { reply: stripClassificationEchoReply(reply) };
     }
 
     const fallback = JSON.stringify(classificationResult.finalOutput);
@@ -534,10 +517,7 @@ export const runWorkflow = async (
     }
 
     const classification = classificationResult.finalOutput.classification;
-    conversationHistory = scrubClassificationAssistantEcho(
-      classificationResult.history,
-      classification,
-    );
+    conversationHistory = buildConversationItemsForFollowUpAgent(workflow, classification);
 
     if (classification === 'product_promotion') {
       const r = await runner.run(sarahAgent, conversationHistory, { maxTurns: 25 });
@@ -545,7 +525,9 @@ export const runWorkflow = async (
       if (r.finalOutput === undefined || r.finalOutput === null) {
         throw new Error('Agent result is undefined');
       }
-      return { output_text: finalOutputToText(r.finalOutput) };
+      return {
+        output_text: stripClassificationEchoReply(finalOutputToText(r.finalOutput)),
+      };
     }
 
     if (classification === 'get_information') {
@@ -554,7 +536,9 @@ export const runWorkflow = async (
       if (r.finalOutput === undefined || r.finalOutput === null) {
         throw new Error('Agent result is undefined');
       }
-      return { output_text: finalOutputToText(r.finalOutput) };
+      return {
+        output_text: stripClassificationEchoReply(finalOutputToText(r.finalOutput)),
+      };
     }
 
     return {
