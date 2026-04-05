@@ -48,7 +48,14 @@ After you set **`DATABASE_URL`**, run migrations against that database:
 npx prisma migrate deploy
 ```
 
-Open **`https://YOUR-DEPLOYMENT/admin/`** (or `/admin/index.html`). Create the **first admin** when the DB has no users, then sign in. You can:
+Open **`https://YOUR-DEPLOYMENT/admin/`** (or `/admin/index.html`).
+
+**First admin (pick one):**
+
+1. **Register in the UI** — if the DB has no users, the login page links to **Create first account**.
+2. **Seed from env (recommended for a fixed account)** — set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` (min 8 characters), then run **`npx prisma db seed`** with `DATABASE_URL` set (local terminal or GitHub Actions workflow **Prisma db seed**; add the same values as repo secrets: `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, optional `SEED_ADMIN_USERNAME`). The seed **does nothing** if any user already exists.
+
+Then sign in with that email and password. You can:
 
 - **Customize** widget colors, radii, shadows, fonts (applied via `/api/public/widget-config` + CSS variables on the widget).
 - **AI & API** — OpenAI-compatible base URL, API key, and per-agent model names (DeepSeek, Grok, Kimi, Gemini compat, etc.).
@@ -56,6 +63,8 @@ Open **`https://YOUR-DEPLOYMENT/admin/`** (or `/admin/index.html`). Create the *
 - **Dialogues** — stored turns when the widget sends `conversationId` (auto-generated per browser session).
 
 Chat still works **without** `DATABASE_URL` using `OPENAI_API_KEY` and built-in defaults; the portal and DB-backed settings are optional.
+
+**Admin says “Database is not configured”:** The API checks `DATABASE_URL` first, then falls back to `POSTGRES_PRISMA_URL`, `POSTGRES_URL`, or `NEON_DATABASE_URL` (Vercel/Neon often use those names). Ensure the variable is enabled for **Production** (not only Preview), then trigger a **new deployment** — env changes do not apply to old deployments.
 
 **Vercel:** The widget must call **`https://YOUR-PROJECT.vercel.app/api/chat`** (POST), not the site root `/`. The widget auto-fixes a root-only URL (e.g. `https://…vercel.app/`) to `/api/chat`. The deployment root `/` is static HTML and does not handle CORS for API calls.
 
@@ -76,7 +85,7 @@ Chat still works **without** `DATABASE_URL` using `OPENAI_API_KEY` and built-in 
 
 4. Deploy. Your API URL will look like `https://your-project.vercel.app/api/chat`.
 
-**Vercel Hobby (12 serverless functions):** This repo keeps only **four** API entry files under `api/` (`chat.ts` plus three catch-all routes for `admin`, `auth`, and `public`). Shared code lives in `lib/`, which does **not** count toward the limit.
+**Vercel Hobby (12 serverless functions):** This repo keeps **six** API entry files under `api/` (`chat.ts`, `admin.ts`, `auth/google.ts`, `auth/google-callback.ts`, `public/widget-config.ts`). Shared code lives in `lib/`, which does **not** count toward the limit. Admin uses `?op=…` on `/api/admin` because dynamic `[...slug]` paths were unreliable on some deployments.
 
 ### CORS
 
@@ -151,9 +160,9 @@ If you stay on the **sample** agents in `lib/workflow/agent.ts`, change the **`i
 | `api/chat.ts` | Vercel function: POST `/api/chat`, CORS, workflow |
 | `lib/workflow/agent.ts` | `runWorkflow`, `runWorkflowStreaming`, agents |
 | `lib/server/*` | DB, auth, admin/auth/public dispatchers (not separate functions) |
-| `api/admin/[...slug].ts` | All `/api/admin/*` routes (Hobby: 1 function) |
-| `api/auth/[...slug].ts` | `/api/auth/google`, `google-callback` |
-| `api/public/[...slug].ts` | `/api/public/widget-config` |
+| `api/admin.ts` | Admin API — use query `?op=status|login|settings|…` |
+| `api/auth/google.ts` / `google-callback.ts` | Google OAuth |
+| `api/public/widget-config.ts` | Public widget theme JSON |
 | `public/chat-widget.js`| Shopify-facing chat UI (no npm deps)               |
 | `public/admin/`        | Admin SPA (static)                                 |
 | `prisma/`              | Postgres schema & migrations                       |

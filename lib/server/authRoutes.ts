@@ -12,22 +12,7 @@ import {
 } from './auth.js';
 import { publicBaseUrl } from './publicBaseUrl.js';
 
-export async function dispatchAuth(
-  req: VercelRequest,
-  res: VercelResponse,
-  route: string,
-): Promise<void> {
-  switch (route) {
-    case 'google':
-      return handleGoogleStart(req, res);
-    case 'google-callback':
-      return handleGoogleCallback(req, res);
-    default:
-      res.status(404).send('Not found');
-  }
-}
-
-async function handleGoogleStart(req: VercelRequest, res: VercelResponse): Promise<void> {
+export async function handleGoogleStart(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'GET') {
     res.status(405).end();
     return;
@@ -84,7 +69,7 @@ async function getProfile(accessToken: string): Promise<{
   return r.json() as Promise<{ id: string; email: string; name?: string }>;
 }
 
-async function handleGoogleCallback(req: VercelRequest, res: VercelResponse): Promise<void> {
+export async function handleGoogleCallback(req: VercelRequest, res: VercelResponse): Promise<void> {
   const base = publicBaseUrl(req);
   const adminHome = `${base}/admin/`;
   const redirectFail = (q: string) => {

@@ -69,7 +69,7 @@
         .join('') +
       '<button type="button" id="nav-logout" style="margin-left:auto">Log out</button>';
     document.getElementById('nav-logout').onclick = function () {
-      api('/admin/logout', { method: 'POST' }).then(function () {
+      api('/admin?op=logout', { method: 'POST' }).then(function () {
         location.hash = '#/login';
         route();
       });
@@ -80,7 +80,7 @@
     var h = (location.hash || '#/login').replace(/^#\/?/, '');
     var parts = h.split('/');
     var page = parts[0] || 'login';
-    api('/admin/me', { method: 'GET' }).then(function (me) {
+    api('/admin?op=me', { method: 'GET' }).then(function (me) {
       var authed = me.ok && me.json && me.json.user;
       if (page !== 'login' && page !== 'register' && !authed) {
         location.hash = '#/login';
@@ -103,7 +103,7 @@
   }
 
   function renderLogin() {
-    api('/admin/status', { method: 'GET' }).then(function (st) {
+    api('/admin?op=status', { method: 'GET' }).then(function (st) {
       var db = st.json && st.json.database;
       var hasUsers = st.json && st.json.hasUsers;
       var regLink =
@@ -118,12 +118,14 @@
         '<label>Password</label><input name="password" type="password" required autocomplete="current-password" />' +
         '<button class="btn" type="submit">Sign in</button></form>' +
         '<p style="margin-top:16px"><a class="btn secondary" href="/api/auth/google">Continue with Google</a></p>' +
-        (!db ? '<p class="msg err">Database is not configured (set DATABASE_URL on Vercel).</p>' : '') +
+        (!db
+          ? '<p class="msg err">Database URL not visible to the server. In Vercel → Settings → Environment Variables: add <strong>DATABASE_URL</strong> for <strong>Production</strong> (or use the Vercel Postgres/Neon integration), then <strong>Redeploy</strong>. If you only see POSTGRES_PRISMA_URL, that is supported too — redeploy after connecting the DB.</p>'
+          : '') +
         '</div>';
       document.getElementById('login-form').onsubmit = function (e) {
         e.preventDefault();
         var fd = new FormData(e.target);
-        api('/admin/login', {
+        api('/admin?op=login', {
           method: 'POST',
           body: {
             email: fd.get('email'),
@@ -155,7 +157,7 @@
     document.getElementById('reg-form').onsubmit = function (e) {
       e.preventDefault();
       var fd = new FormData(e.target);
-      api('/admin/register', {
+      api('/admin?op=register', {
         method: 'POST',
         body: {
           email: fd.get('email'),
@@ -176,7 +178,7 @@
   }
 
   function loadSettings(cb) {
-    api('/admin/settings', { method: 'GET' }).then(function (r) {
+    api('/admin?op=settings', { method: 'GET' }).then(function (r) {
       if (!r.ok) {
         main.innerHTML =
           '<div class="msg err">Could not load settings: ' +
@@ -273,7 +275,7 @@
             theme[k] = v ? Number(v) : undefined;
           } else if (v) theme[k] = String(v);
         });
-        api('/admin/settings', {
+        api('/admin?op=settings', {
           method: 'PATCH',
           body: { widgetTheme: theme },
         }).then(function (r) {
@@ -348,7 +350,7 @@
         var key = fd.get('llmApiKey');
         if (key && String(key).trim()) body.llmApiKey = String(key).trim();
         if (fd.get('clearKey')) body.clearLlmApiKey = true;
-        api('/admin/settings', { method: 'PATCH', body: body }).then(function (r) {
+        api('/admin?op=settings', { method: 'PATCH', body: body }).then(function (r) {
           var el = document.getElementById('ai-msg');
           el.innerHTML = r.ok
             ? '<div class="msg ok">Saved.</div>'
@@ -382,7 +384,7 @@
       document.getElementById('pr-form').onsubmit = function (e) {
         e.preventDefault();
         var fd = new FormData(e.target);
-        api('/admin/settings', {
+        api('/admin?op=settings', {
           method: 'PATCH',
           body: {
             welcomeMessage: fd.get('welcomeMessage'),
@@ -403,7 +405,10 @@
 
   function renderDialogues(id) {
     if (id) {
-      api('/admin/conversation-detail?id=' + encodeURIComponent(id), { method: 'GET' }).then(function (r) {
+      api(
+        '/admin?op=conversation-detail&id=' + encodeURIComponent(id),
+        { method: 'GET' },
+      ).then(function (r) {
         if (!r.ok) {
           main.innerHTML = '<div class="msg err">Not found</div>';
           return;
@@ -433,7 +438,7 @@
       });
       return;
     }
-    api('/admin/conversations', { method: 'GET' }).then(function (r) {
+    api('/admin?op=conversations', { method: 'GET' }).then(function (r) {
       if (!r.ok) {
         main.innerHTML = '<div class="msg err">Could not load dialogues</div>';
         return;
@@ -461,7 +466,7 @@
   }
 
   function renderAccount() {
-    api('/admin/me', { method: 'GET' }).then(function (r) {
+    api('/admin?op=me', { method: 'GET' }).then(function (r) {
       var u = r.json.user;
       main.innerHTML =
         '<div class="card"><h2>Account</h2><div id="acc-msg"></div>' +
@@ -485,7 +490,7 @@
           body.password = String(np);
           body.currentPassword = fd.get('currentPassword');
         }
-        api('/admin/me', { method: 'PATCH', body: body }).then(function (res) {
+        api('/admin?op=me', { method: 'PATCH', body: body }).then(function (res) {
           var el = document.getElementById('acc-msg');
           el.innerHTML = res.ok
             ? '<div class="msg ok">Saved.</div>'

@@ -1,0 +1,35 @@
+# Create the first admin user (only when the DB has zero users).
+# Run once from Actions → "Prisma db seed" → Run workflow.
+#
+# Required repo secrets:
+#   DATABASE_URL
+#   SEED_ADMIN_EMAIL
+#   SEED_ADMIN_PASSWORD   (min 8 characters)
+# Optional:
+#   SEED_ADMIN_USERNAME
+
+name: Prisma db seed
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Seed first admin
+        run: npx prisma db seed
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEED_ADMIN_EMAIL: ${{ secrets.SEED_ADMIN_EMAIL }}
+          SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
+          SEED_ADMIN_USERNAME: ${{ secrets.SEED_ADMIN_USERNAME }}

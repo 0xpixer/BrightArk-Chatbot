@@ -8,13 +8,16 @@
     "api/chat.ts": {
       "maxDuration": 60
     },
-    "api/admin/[...slug].ts": {
+    "api/admin.ts": {
       "maxDuration": 30
     },
-    "api/auth/[...slug].ts": {
+    "api/auth/google.ts": {
       "maxDuration": 30
     },
-    "api/public/[...slug].ts": {
+    "api/auth/google-callback.ts": {
+      "maxDuration": 30
+    },
+    "api/public/widget-config.ts": {
       "maxDuration": 10
     }
   }
