@@ -142,6 +142,54 @@
     return text.split(/\r?\n/).map(linkifyBareUrlsOneLine).join('<br>');
   }
 
+  function applyInlineMarkdownToHtml(html) {
+    var tokens = html.split(/(<a\b[^>]*>[\s\S]*?<\/a>|<br>)/i);
+    return tokens
+      .map(function (part) {
+        if (!part) return '';
+        if (/^<a\b/i.test(part) || /^<br>$/i.test(part)) return part;
+        var out = part;
+        out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+        out = out.replace(/\*\*([^*\n][\s\S]*?)\*\*/g, '<strong>$1</strong>');
+        out = out.replace(/(^|[^\*])\*([^*\n][^*]*?)\*(?=[^\*]|$)/g, '$1<em>$2</em>');
+        out = out.replace(/(^|[^_])_([^_\n][^_]*?)_(?=[^_]|$)/g, '$1<em>$2</em>');
+        return out;
+      })
+      .join('');
+  }
+
+  function renderMarkdownText(text) {
+    var lines = String(text || '').split(/\r?\n/);
+    var chunks = [];
+    var list = [];
+
+    function flushList() {
+      if (!list.length) return;
+      chunks.push(
+        '<ul>' +
+          list
+            .map(function (item) {
+              return '<li>' + applyInlineMarkdownToHtml(linkifyBareUrlsOneLine(item)) + '</li>';
+            })
+            .join('') +
+          '</ul>',
+      );
+      list = [];
+    }
+
+    lines.forEach(function (line) {
+      var m = line.match(/^\s*[-*]\s+(.+)$/);
+      if (m) {
+        list.push(m[1]);
+      } else {
+        flushList();
+        chunks.push(applyInlineMarkdownToHtml(linkifyBareUrlsOneLine(line)));
+      }
+    });
+    flushList();
+    return chunks.join('<br>');
+  }
+
   /** Bot-only: markdown [label](url) + bare URLs; all other HTML escaped. */
   function renderBotMessageHtml(raw) {
     if (raw == null || raw === '') return '';
@@ -174,7 +222,7 @@
             '<a ' + linkAttrsForHref(safe) + '>' + escapeHtml(p.label) + '</a>'
           );
         }
-        return linkifyBareUrlsInText(p.v);
+        return renderMarkdownText(p.v);
       })
       .join('');
   }
@@ -207,6 +255,9 @@
       '.brightark-msg-inner{padding:10px 12px;border-radius:var(--ba-bubble-radius,12px);font-size:var(--ba-font-size,14px);line-height:1.45;word-break:break-word;box-shadow:var(--ba-bubble-shadow,none)}' +
       '.brightark-msg.user .brightark-msg-inner{background:var(--ba-user-bg,var(--ba-primary,#E06429));color:var(--ba-user-text,#fff);border-bottom-right-radius:var(--ba-bubble-corner,4px)}' +
       '.brightark-msg.bot .brightark-msg-inner{background:var(--ba-bot-bg,#fff);color:var(--ba-bot-text,#222);border:var(--ba-border-width,1px) solid var(--ba-bot-border,#e5e7eb);border-bottom-left-radius:var(--ba-bubble-corner,4px)}' +
+      '.brightark-msg.bot .brightark-msg-inner code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:rgba(148,163,184,.2);padding:1px 5px;border-radius:5px}' +
+      '.brightark-msg.bot .brightark-msg-inner ul{margin:6px 0 6px 18px;padding:0}' +
+      '.brightark-msg.bot .brightark-msg-inner li{margin:3px 0}' +
       '.brightark-msg.bot .brightark-msg-inner a{color:#2563eb;text-decoration:underline;word-break:break-all}' +
       '.brightark-msg.bot .brightark-msg-inner a:hover{color:#1d4ed8}' +
       '.brightark-thinking{max-width:85%;margin:0;display:flex;align-self:flex-start}' +
